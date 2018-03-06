@@ -1,0 +1,6 @@
+---
+  1:
+    secret: AAAABBBBCCCCDDDD
+    method: github
+    site_dir: /path/to/site
+    command_dir: commands

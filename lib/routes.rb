@@ -11,13 +11,15 @@ post '/api/1.0/client/:id/:command' do
   request.body.rewind
 
   msg = "Authentication failed"
-  return halt 500, msg unless authenticated?(client['method'],
-                                             client,
-                                             request)
+  return halt 500, msg unless authenticated?(client['method'], client, request)
 
-  # command_path = client['site_dir'] + '/' +
-  #                client['command_dir'] + '/' +
-  #                params[:command]
+  command_path = client['site_dir'] + '/' +
+                 client['command_dir'] + '/' +
+                 params[:command]
+
+  msg = "Command not found"
+  return halt 500, msg unless File.file? command_path
+
   # pid = spawn "#{command_path}"
   # Process.detach pid
 

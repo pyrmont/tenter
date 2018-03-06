@@ -4,7 +4,7 @@
 /Gemfile.lock
 /_site/
 /_yardoc/
-/clients/
+/clients/*.yml
 /coverage/
 /doc/
 /pkg/
