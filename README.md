@@ -6,6 +6,14 @@ Kyuji provides a simple API for requesting the execution of commands on a server
 
 Kyuji is a minimal web app that processes requests for the execution of commands on the server running Kyuji. It is built on the Sinatra framework. Its intended use is as a means of providing webhooks that can be called by online services such as GitHub.
 
+## Installation
+
+    $ git clone git@github.com:pyrmont/kyuji.git
+    $ cd kyuji
+    $ bundle install
+    $ mkdir log
+    $ mkdir -p tmp/puma
+
 ## Usage
 
 Kyuji responds to POST requests sent to a URI of the form `/api/<version>/client/<client_id>/<command_name>`. All other forms of request are redirected to the root index.
@@ -20,7 +28,9 @@ The API is currently at version 1.0.
 
 Authorized clients are defined in separate YAML files stored in `/clients`. An example file is included in the repo.
 
-- `id`: As in the example, the YAML file should define a single item Hash with the key being the ID of the client. An ID must be an integer.
+A client file should contain the following elements:
+
+- `id`: The YAML file should define a single item Hash with the key being the ID of the client. An ID must be an integer. Note that because the ID is the key for the item, it does not have an identifier.
 - `secret`: A secret token that is shared with the client.
 - `method`: Requests must be capable of being authenticated by Kyuji. At present, the only authentication method is the [one used by GitHub][ghm] for its event webhooks.
 - `command_dir`: The directory on the server in which the commands are located. This directory will also be used as the current directory for the environment in which the command is executed.
