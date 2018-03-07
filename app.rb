@@ -24,15 +24,20 @@ class Pumatra < Sinatra::Base
     msg = "Authentication failed"
     return halt 500, msg unless authenticated?(client['method'], client, request)
 
-    command_path = client['site_dir'] + '/' +
-                   client['command_dir'] + '/' +
-                   params[:command]
+    command_path = client['command_dir'] + '/' + params[:command]
 
     msg = "Command not found"
     return halt 500, msg unless File.file? command_path
 
-    # pid = spawn "#{command_path}"
-    # Process.detach pid
+    File.open('log/commands.log', 'a') do |f|
+      f.puts "\n"
+      f.puts "[" + Time.now.to_s + "] Beginning command invocation..."
+      f.puts "\n"
+    end
+    pid = spawn "#{command_path}", chdir: client['command_dir'],
+                                   unsetenv_others: true,
+                                   [:out] => ["log/commands.log", "a"]
+    Process.detach pid
 
     msg = "Success"
     return 200, msg
