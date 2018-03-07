@@ -4,11 +4,11 @@ require 'yaml'
 require_relative 'lib/clients'
 require_relative 'lib/authentication'
 
-configure {
+configure do
   set :server, :puma
-}
+end
 
-class Pumatra < Sinatra::Base 
+class Pumatra < Sinatra::Base
   post '/api/1.0/client/:id/:command' do
     msg = "ID not an integer"
     return halt 500, msg unless params[:id].to_i
@@ -36,6 +36,10 @@ class Pumatra < Sinatra::Base
 
     msg = "Success"
     return 200, msg
+  end
+
+  not_found do
+    redirect '/'
   end
 
   run! if app_file == $0
