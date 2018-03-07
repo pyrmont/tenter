@@ -20,15 +20,12 @@ The API is currently at version 1.0.
 
 Authorized clients are defined in separate YAML files stored in `/clients`. An example file is included in the repo.
 
-- **`id`** As in the example, the YAML file should define a single item Hash with the key being the ID of the client. An ID must be an integer.
+- `id`: As in the example, the YAML file should define a single item Hash with the key being the ID of the client. An ID must be an integer.
+- `secret`: A secret token that is shared with the client.
+- `method`: Requests must be capable of being authenticated by Kyuji. At present, the only authentication method is the [one used by GitHub][ghm] for its event webhooks.
+- `command_dir`: The directory on the server in which the commands are located. This directory will also be used as the current directory for the environment in which the command is executed.
 
-- **`secret`** A secret token that is shared with the client.
-
-- **`method`** Requests must be capable of being authenticated by Kyuji. At present, the only authentication method is the [one used by GitHub][ghm] for its event webhooks.
-
-  [ghm]: https://developer.github.com/webhooks/securing/
-
-- **`command_dir`** The directory on the server in which the commands are located. This directory will also be used as the current directory for the environment in which the command is executed.
+[ghm]: https://developer.github.com/webhooks/securing/
 
 ### Commands
 
