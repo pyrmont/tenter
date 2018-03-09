@@ -8,11 +8,13 @@ Kyuji is a minimal web app that processes requests for the execution of commands
 
 ## Installation
 
-    $ git clone git@github.com:pyrmont/kyuji.git
+```sh
+$ git clone git@github.com:pyrmont/kyuji.git
     $ cd kyuji
     $ bundle install
     $ mkdir log
     $ mkdir -p tmp/puma
+```
 
 ## Usage
 
