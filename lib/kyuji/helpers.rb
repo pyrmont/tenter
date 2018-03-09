@@ -11,10 +11,13 @@ module Kyuji
     # @since 1.0.0
     # @api private
     def authenticate()
-      msg = "Authentication failed"
-      halt 403, msg unless Kyuji.authenticated?(@client['method'],
-                                                       @client,
-                                                       request)
+      begin
+        did_pass = Kyuji.authenticated?(@client['method'], @client, request)
+        msg = "Authentication failed"
+        halt 403, msg unless did_pass
+      rescue => e
+        halt 400, e.message
+      end
     end
 
     # Run the specified command.
