@@ -13,3 +13,4 @@
 /vendor/
 /tmp/
 *.swp
+/config/puma.rb
