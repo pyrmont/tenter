@@ -1,5 +1,3 @@
-#!/usr/bin/env ruby
+require 'tenter'
 
-require './app'
-
-run Pumatra
+run Tenter::Hooks

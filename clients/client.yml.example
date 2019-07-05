@@ -1,5 +1,0 @@
----
-  1:
-    secret: AAAABBBBCCCCDDDD
-    method: github
-    command_dir: /path/to/commands

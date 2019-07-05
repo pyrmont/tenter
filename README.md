@@ -1,67 +1,131 @@
-# Kyuji
+# Tenter
 
-Kyuji provides a simple API for requesting the execution of commands on a server.
+Tenter is a Sinatra-based web application that provides webhooks for use by
+GitHub.
 
-## Overview
+## Rationale
 
-Kyuji is a minimal web app that processes requests for the execution of commands on the server running Kyuji. It is built on the Sinatra framework. Its intended use is as a means of providing webhooks that can be called by online services such as GitHub.
+Webhooks offer the promise of being able to execute arbitrary actions in
+response to events occurring in a GitHub Repository. Sounds amazing. Except
+who's going to set up a server to receive each request, confirm its authenticity
+and then process it appropriately?
+
+Tenter makes that all easy. Tenter runs on any Rack-compatible server and
+exposes a simple URL in the form of `/run/<command>/in/<directory>`. An
+authenticated POST request to this URL will cause Tenter to execute the command
+at `/<doc_root>/<directory>/commands/<command>`. The defaults are all sane but
+you can customise them as you please.
+
+Enough jibber jabber. Let's get to the action.
 
 ## Installation
 
-```sh
-git clone git@github.com:pyrmont/kyuji.git
-cd kyuji
-bundle install
-mkdir log
-mkdir -p tmp/puma
+Tenter is available as a gem:
+
+```shell
+$ gem install tenter
 ```
+
+Now create a `config.ru` file in the directory where you'll run Tenter:
+
+```ruby
+require "tenter"
+
+run Tenter::Hooks
+```
+
+The final step:
+
+```shell
+$ rackup
+```
+
+And you're off to the races.
 
 ## Usage
 
-Kyuji responds to POST requests sent to a URI of the form `/api/<version>/client/<client_id>/<command_name>`. All other forms of request are redirected to the root index.
+The easiest way to understand how Tenter works is the first imagine a directory
+structure like this:
 
-If the request is authenticated and the command valid, the command will be executed and a successful status code returned. If not, an error status code will be returned.
+```
+doc/
+|
+--root/
+| |
+| --my_dir/
+| | |
+| | --commands/
+| | | |
+| | | --my_action
+| | |
+| | --log/
+| | |
+| | --hooks.yaml
+```
 
-### API Version
+By setting up Tenter to listen on a particular domain (eg. `example.org`) and to
+treat `/doc/root` as the document root, we expose a webhook that will allow
+`my_action` to be run by sending a POST request to
+<http://example.org/run/my_action/in/my_dir/>.
 
-The API is currently at version 1.0.
+## Configuration
 
-### Clients
+Tenter adopts convention over configuration as much as possible.
 
-Authorized clients are defined in separate YAML files stored in `/clients`. An example file is included in the repo.
+The only thing you need to set is the `secret` in each exposed directory's
+`hooks.yaml` file. This secret must also be saved in your GitHub repository's
+settings and used by GitHub to sign its POST requests.
 
-The YAML file should define a single-item hash with the key being the ID of the client. An ID must be an integer. The item is itself a hash setting out the following key/value pairs:
+Tenter will only execute a given command in response to a request if it confirms
+the request's signature.
 
-- `secret`: A secret token that is shared with the client.
-- `method`: A method for authenticating requests. At present, the only authentication method is the [one used by GitHub][ghm] for its event webhooks.
-- `command_dir`: The directory on the server in which the commands are located. This directory will also be used as the current directory for the environment in which the command is executed.
+Of course, if you want, you can tweak the following settings as you please:
 
-[ghm]: https://developer.github.com/webhooks/securing/
+- `:doc_root` (default: `"/var/www"`): The root directory in which each exposed
+  directory will be located.
 
-### Commands
+- `:config_filename` (default: `"hooks.yaml"`): The filename of the
+  configuration file in each exposed directory.
 
-Commands are executed by spawning a new process using Ruby's [`Process::spawn`][rds] method. As a result, they are run as the user that owns the process running Kyuji. Once spawned, the process is detached. The current working directory is set to be the same directory in which the process is running.
+- `:command_dir` (default: `"commands"`): The name of the subdirectory holding
+  the commands for each exposed directory.
 
-[rds]: http://ruby-doc.org/core-2.5.0/Process.html#method-c-spawn
+- `:log_file` (default `"log/commands.log"`): The path to the log file in each
+  exposed directory where output from your commands will be logged. You can set
+  this to `nil` to disable logging.
 
-## Requirements
+To change these settings, simply assign a hash with the defaults you want to
+change in your `config.ru` file:
 
-Kyuji has been tested with Ruby version 2.3.2.
+```ruby
+require "tenter"
+
+Tenter.settings = { log_file: nil } # disable logging
+
+run Tenter::Hooks
+```
+
+### Limitations
+
+Tenter does not currently provide the ability to use different settings for
+different exposed directories. If you want that kind of fine-grained control,
+you can run multiple instances of Tenter.
 
 ## Bugs
 
-Found a bug? I'd love to know about it. The best way is to report them in the [Issues section][ghi] on GitHub.
+Found a bug? I'd love to know about it. The best way is to report them in the
+[Issues section][ghi] on GitHub.
 
 [ghi]: https://github.com/pyrmont/kyuji/issues
 
 ## Versioning
 
-Kyuji itself uses [Semantic Versioning 2.0.0][sv2]. The API uses only major and minor numbers.
+Tenter uses [Semantic Versioning 2.0.0][sv2].
 
 [sv2]: http://semver.org/
 
 ## Licence
 
-Kyuji is released into the public domain. See [LICENSE.md][lc] for more details.
+Tenter is released into the public domain. See [LICENSE.md][lc] for more details.
 
-[lc]: https://github.com/pyrmont/kyuji/blob/master/LICENSE.md
+[lc]: https://github.com/pyrmont/tenter/blob/master/LICENSE.md
