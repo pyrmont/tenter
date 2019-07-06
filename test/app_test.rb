@@ -73,7 +73,7 @@ class TenterTest < Minitest::Test
     command = Tenter::Utils.command "cmd", "some_dir"
     statement = "Initiating: #{command["path"]}"
     time_re = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \+\d{4}/
-    re = /\[#{time_re}\] #{statement}\nHello world\n/
+    re = /\[#{time_re}\] #{statement}\n\[#{time_re}\] Hello world\n/
     
     post path("cmd", "some_dir"), nil, valid_sig
     assert_equal 200, last_response.status

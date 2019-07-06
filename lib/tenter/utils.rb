@@ -21,6 +21,7 @@ module Tenter
     end
 
     def self.command(command_name, site_dir)
+      ts = %q{ | xargs -L 1 sh -c 'printf "[%s] %s\n" "$(date +%Y-%m-%d\ %H:%M:%S\ %z )" "$*" ' sh}
       command = {}
       command["pwd"]  = File.join(Tenter.settings[:doc_root], site_dir)
       command["path"] = File.join(command["pwd"],
@@ -32,8 +33,8 @@ module Tenter
                           "/dev/null"
                         end
       command["proc"] = Proc.new {
-        spawn command["path"], { :chdir => command["pwd"], 
-                                 :out => [ command["log"], "a" ] }
+        spawn command["path"] + ts, { :chdir => command["pwd"], 
+                                      :out => [ command["log"], "a" ] }
       }
 
       return command
