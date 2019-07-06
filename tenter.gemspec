@@ -21,6 +21,7 @@ Gem::Specification.new do |s|
   s.metadata['allowed_push_host'] = 'https://rubygems.org'
 
   s.add_runtime_dependency "sinatra", "~> 2.0"
+  s.add_runtime_dependency "thin", "~> 1.7"
 
   s.add_development_dependency "minitest", "~> 5.11"
   s.add_development_dependency "rack-test", "~> 1.1"
