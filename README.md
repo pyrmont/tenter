@@ -44,23 +44,17 @@ And you're off to the races.
 
 ## Usage
 
-The easiest way to understand how Tenter works is the first imagine a directory
+The easiest way to understand how Tenter works is to first imagine a directory
 structure like this:
 
 ```
 doc/
-|
---root/
-| |
-| --my_dir/
-| | |
-| | --commands/
-| | | |
-| | | --my_action
-| | |
-| | --log/
-| | |
-| | --hooks.yaml
+├─root/
+│ ├─my_dir/
+│ │ ├─commands/
+│ │ │ ├─my_action
+│ │ ├─log/
+│ │ ├─hooks.yaml
 ```
 
 By setting up Tenter to listen on a particular domain (eg. `example.org`) and to
@@ -73,16 +67,16 @@ treat `/doc/root` as the document root, we expose a webhook that will allow
 Tenter adopts convention over configuration as much as possible.
 
 The only thing you need to set is the `secret` in each exposed directory's
-`hooks.yaml` file. This secret must also be saved in your GitHub repository's
-settings and used by GitHub to sign its POST requests.
-
-Tenter will only execute a given command in response to a request if it confirms
-the request's signature.
+`hooks.yaml` file. When you set up the webhook in your GitHub repository's
+settings, GitHub will ask you for this secret. GitHub will use the secret to
+sign its POST requests and it's this signature that Tenter validates before
+running commands.
 
 Of course, if you want, you can tweak the following settings as you please:
 
 - `:doc_root` (default: `"/var/www"`): The root directory in which each exposed
-  directory will be located.
+  directory will be located. It's recommended to specify this as an absolute
+  path.
 
 - `:config_filename` (default: `"hooks.yaml"`): The filename of the
   configuration file in each exposed directory.
@@ -116,7 +110,7 @@ you can run multiple instances of Tenter.
 Found a bug? I'd love to know about it. The best way is to report them in the
 [Issues section][ghi] on GitHub.
 
-[ghi]: https://github.com/pyrmont/kyuji/issues
+[ghi]: https://github.com/pyrmont/tenter/issues
 
 ## Versioning
 
