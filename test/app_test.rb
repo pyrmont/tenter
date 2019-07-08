@@ -30,7 +30,8 @@ class TenterTest < Minitest::Test
   end
 
   def test_default_settings
-    assert_equal [ :command_dir, :config_filename, :doc_root, :log_file ],
+    assert_equal [ :command_dir, :config_filename, :doc_root, :log_file,
+                   :timestamp ],
                  Tenter.settings.keys.sort
   end
 
@@ -83,11 +84,10 @@ class TenterTest < Minitest::Test
 
   def test_post_with_no_log
     Tenter.settings = { log_file: nil }
-    command = Tenter::Utils.command "cmd", "some_dir"
     post path("cmd", "some_dir"), nil, valid_sig
     assert_equal 200, last_response.status
     assert_equal "Command initiated", last_response.body
-    assert_equal "", File.read(File.join(command["pwd"], 
+    assert_equal "", File.read(File.join(Tenter.settings[:doc_root], "some_dir",
                                          Tenter.defaults[:log_file]))
   end
 end

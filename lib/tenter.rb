@@ -10,7 +10,8 @@ module Tenter
     { doc_root: "/var/www/",
       config_filename: "hooks.yaml",
       command_dir: "commands",
-      log_file: "log/commands.log" }
+      log_file: "log/commands.log",
+      timestamp: true }
   end
 
   def self.reset

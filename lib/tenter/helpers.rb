@@ -30,10 +30,15 @@ module Tenter
       msg = "Command not found"
       halt 400, msg unless File.file? command["path"]
 
-      msg = "[#{Time.now}] Initiating: #{command["path"]}\n"
+      ts = Tenter.settings[:timestamp] ? "[#{Time.now}] " : ""
+      msg = ts + "Initiating: #{command["path"]}\n"
       Tenter::Utils.append_to_log command["log"], msg
 
-      pid = command["proc"].call
+      pid = if defined?(Bundler) && Bundler.respond_to?(:with_clean_env)
+              Bundler.with_clean_env { command["proc"].call }
+            else
+              command["proc"].call
+            end
       (ENV["APP_ENV"] != "test") ? Process.detach(pid) : Process.wait(pid)
     end
 

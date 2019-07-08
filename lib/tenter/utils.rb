@@ -21,20 +21,23 @@ module Tenter
     end
 
     def self.command(command_name, site_dir)
-      ts = %q{ | xargs -L 1 sh -c 'printf "[%s] %s\n" "$(date +%Y-%m-%d\ %H:%M:%S\ %z )" "$*" ' sh}
+      site_path = File.join(Tenter.settings[:doc_root], site_dir)
       command = {}
-      command["pwd"]  = File.join(Tenter.settings[:doc_root], site_dir)
-      command["path"] = File.join(command["pwd"],
-                                  Tenter.settings[:command_dir],
-                                  command_name)
+      command["dir"]  = File.join(site_path, Tenter.settings[:command_dir])
+      command["path"] = File.join(command["dir"], command_name)
       command["log"]  = unless Tenter.settings[:log_file].nil?
-                          File.join(command["pwd"], Tenter.settings[:log_file])
+                          File.join(site_path, Tenter.settings[:log_file])
                         else
                           "/dev/null"
                         end
       command["proc"] = Proc.new {
-        spawn command["path"] + ts, { :chdir => command["pwd"], 
-                                      :out => [ command["log"], "a" ] }
+        ts = if Tenter.settings[:timestamp]
+               %q{ | xargs -L 1 sh -c 'printf "[%s] %s\n" "$(date +%Y-%m-%d\ %H:%M:%S\ %z )" "$*" ' sh}
+             else
+               ""
+             end
+        spawn command["path"] + ts, { :chdir => command["dir"],
+                                      [ :out, :err ] => [ command["log"], "a" ] }
       }
 
       return command
