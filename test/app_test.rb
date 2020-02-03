@@ -39,7 +39,7 @@ class TenterTest < Minitest::Test
     Tenter.settings = { doc_root: "doc_root" }
     assert_equal "doc_root", Tenter.settings[:doc_root]
   end
-  
+
   def test_root
     get "/"
     assert_equal 404, last_response.status
@@ -75,7 +75,7 @@ class TenterTest < Minitest::Test
     statement = "Initiating: #{command["path"]}"
     time_re = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \+\d{4}/
     re = /\[#{time_re}\] #{statement}\n\[#{time_re}\] Hello world\n/
-    
+
     post path("cmd", "some_dir"), nil, valid_sig
     assert_equal 200, last_response.status
     assert_equal "Command initiated", last_response.body
