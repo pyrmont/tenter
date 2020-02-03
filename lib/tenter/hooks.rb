@@ -3,6 +3,13 @@
 require "sinatra/base"
 
 module Tenter
+
+  # The Sinatra application
+  #
+  # This sets out the routes for the Sinatra application.
+  #
+  # @since 0.1.1
+  # @api private
   class Hooks < Sinatra::Base
     helpers Tenter::Helpers
 
