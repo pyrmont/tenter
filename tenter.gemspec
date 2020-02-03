@@ -27,4 +27,6 @@ Gem::Specification.new do |s|
   s.add_development_dependency "minitest", "~> 5.0"
   s.add_development_dependency "rack-test", "~> 1.0"
   s.add_development_dependency "rake", "~> 13.0"
+  s.add_development_dependency "redcarpet", "~> 3.0"
+  s.add_development_dependency "yard", "~> 0.0"
 end
