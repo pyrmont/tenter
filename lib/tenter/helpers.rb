@@ -3,7 +3,21 @@
 require "openssl"
 
 module Tenter
+
+  # Sinatra helpers for Tenter
+  #
+  # These helpers provide idiomatic methods for use in Sinatra routes. This
+  # module is intended to be called by passing it to the `Sinatra::Base.helpers`
+  # method.
+  #
+  # @since 0.1.1
+  # @api private
   module Helpers
+
+    # Authenticates the request
+    #
+    # @since 0.1.1
+    # @api private
     def authenticate
       msg = "X-Hub-Signature header not set"
       halt 400, msg unless request.env['HTTP_X_HUB_SIGNATURE']
@@ -24,6 +38,10 @@ module Tenter
       halt 403, msg unless Rack::Utils.secure_compare computed_sig, request_sig
     end
 
+    # Executes the command
+    #
+    # @since 0.1.1
+    # @api private
     def initiate
       command = Tenter::Utils.command params[:command_name], params[:site_dir]
 
@@ -42,6 +60,11 @@ module Tenter
       (ENV["APP_ENV"] != "test") ? Process.detach(pid) : Process.wait(pid)
     end
 
+    # Generates the response's HTTP header status and body
+    #
+    # @param message [Symbol] the type of response
+    # @since 0.1.1
+    # @api private
     def notify(message)
       case message
       when :initiated
