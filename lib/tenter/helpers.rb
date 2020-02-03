@@ -10,7 +10,7 @@ module Tenter
 
       msg = "X-Hub-Signature header did not match"
       halt 403, msg unless Tenter::Utils.dir_exists? params[:site_dir]
-      
+
       secret = Tenter::Utils.secret params[:site_dir]
 
       request_sig = request.env['HTTP_X_HUB_SIGNATURE']
@@ -19,7 +19,7 @@ module Tenter
                      OpenSSL::HMAC.hexdigest(OpenSSL::Digest.new('sha1'),
                                              secret,
                                              request_body)
-      
+
       msg = "X-Hub-Signature header did not match"
       halt 403, msg unless Rack::Utils.secure_compare computed_sig, request_sig
     end
@@ -34,8 +34,8 @@ module Tenter
       msg = ts + "Initiating: #{command["path"]}\n"
       Tenter::Utils.append_to_log command["log"], msg
 
-      pid = if defined?(Bundler) && Bundler.respond_to?(:with_clean_env)
-              Bundler.with_clean_env { command["proc"].call }
+      pid = if defined?(Bundler) && Bundler.respond_to?(:with_original_env)
+              Bundler.with_original_env { command["proc"].call }
             else
               command["proc"].call
             end
