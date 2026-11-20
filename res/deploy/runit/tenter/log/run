@@ -1,0 +1,4 @@
+#!/bin/sh
+# Writes Tenter's output (each request and the reason for each refusal) to
+# /var/log/tenter, with timestamps. Create the directory first.
+exec svlogd -tt /var/log/tenter

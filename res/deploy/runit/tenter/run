@@ -1,0 +1,17 @@
+#!/bin/sh
+# runit service for Tenter. Copy this directory to /etc/sv/tenter, change the
+# user and paths below, and link it into the running services:
+#
+#   ln -s /etc/sv/tenter /var/service/
+#
+# Tenter and its commands run as USER, which should own the exposed
+# directories and must not be root. runit gives services a short PATH and
+# chpst does not set HOME, so both are set here for the commands, which get
+# PATH, HOME, LANG, LC_ALL and TZ from Tenter's environment.
+
+USER=www-data
+HOME_DIR=/var/www
+
+exec 2>&1
+exec env PATH=/usr/local/bin:/usr/bin:/bin HOME="$HOME_DIR" \
+	chpst -u "$USER" /usr/local/bin/tenter --doc-root /var/www

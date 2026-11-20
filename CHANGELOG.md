@@ -18,6 +18,8 @@ since the most recent release are under Unreleased.
 - Once listening, Tenter gives up the capabilities it does not need, such
   as compiling code, reading the environment and making outbound
   connections.
+- Added a man page, `tenter(1)`, and example nginx and runit configuration
+  in `res/deploy/`. The README describes moving from Tenter 0.2.
 - Requests are authenticated with `X-Hub-Signature-256` (HMAC-SHA256)
   instead of `X-Hub-Signature` (HMAC-SHA1), compared in constant time.
 - Each exposed directory's configuration is `hooks.edn`, a map with a

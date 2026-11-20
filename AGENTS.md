@@ -41,9 +41,16 @@ tenter/
 │   ├── fixtures/          # Trees the tests copy, one directory per test file
 │   │   ├── auth/          # www/ (a document root) and outside/
 │   │   └── runner/        # www/ with commands for each case, outside/
-│   └── helpers/
-│       └── util.wattle    # Copies a fixture to tmp/test/ (imported as `h`)
+│   ├── helpers/
+│   │   └── util.wattle    # Copies a fixture to tmp/test/ (imported as `h`)
+│   ├── deploy/            # Examples: nginx/tenter.conf, runit/tenter/
+│   └── tools/
+│       └── version.wattle # Sets the version (release tooling)
+├── man/man1/
+│   ├── tenter.1.predoc  # Man page source (Predoc)
+│   └── tenter.1         # Generated man page (committed)
 ├── deps/gum/            # Vendored with `wattle gum args test`
+├── .github/workflows/test.yml  # Builds Wattle, builds Tenter, runs the tests
 ├── info.edn             # Project and build declaration
 ├── CHANGELOG.md         # Changes by release, with an Unreleased section
 └── PLAN.md              # Design and milestones
@@ -130,9 +137,9 @@ fails to parse or means something else:
 - **Splice is `|`**: `(f |args)`, `["cmd" |args]`. A `;` starts a comment;
   `#` does not.
 - **Short functions are `#(...)`**: `$` (or `$0`) is the first argument, `$1`
-  the second and `$&` the rest. `|(...)` is a splice, not a function. A
-  short function whose body is a collection literal needs `do`, as in
-  `#(do {:path $})`.
+  the second and `$&` the rest. `|(...)` is a splice, not a function. If
+  the body of a short function is a collection literal, it needs `do`, as
+  in `#(do {:path $})`.
 - **Quasiquote is a backtick and unquote is `~`**, as in a PEG grammar that
   calls a function: `` `(/ (<- :d) ~f) ``. A backtick is not a string
   delimiter. Use `"..."` or a raw string, `"""..."""`, which drops the line
@@ -164,7 +171,20 @@ wattle build exe                                        # zig-out/bin/tenter
 wattle build exe --release fast -t x86_64-linux-musl    # static Linux binary
 ```
 
-The version stays `DEVEL` in `info.edn` between releases.
+A musl build replaces `zig-out/bin/tenter`, so run `wattle build exe` again
+before `wattle test`.
+
+The man page source is `man/man1/tenter.1.predoc`. Regenerate
+`man/man1/tenter.1` with `predoc man/man1/tenter.1.predoc -o
+man/man1/tenter.1` and commit both. Code blocks in Predoc use four
+backticks.
+
+The version stays `DEVEL` in `info.edn` and the man page between releases.
+`wattle res/tools/version.wattle <version>` sets it in both, regenerates the
+man page and updates `CHANGELOG.md`.
+
+The files in `res/deploy/` are examples for any server, so they name no
+particular host. Keep them in step with the defaults and the man page.
 
 ## Testing
 
@@ -197,5 +217,13 @@ file and run the file.
 
 ### Adding a CLI option
 1. Add it to the rules in `lib/cli.wattle`, to `defaults` and to `settings`.
-2. Update the help text in `README.md` and `test/executable.wattle`.
+2. Update `man/man1/tenter.1.predoc`, regenerate `tenter.1`, and update the
+   help text in `README.md` and `test/executable.wattle`.
+3. Add an entry to the Unreleased section of `CHANGELOG.md`.
+
+### Changing a response or a limit
+1. Update `lib/server.wattle` and its tests.
+2. Update RESPONSES in `man/man1/tenter.1.predoc` (and regenerate
+   `tenter.1`), and `res/deploy/nginx/tenter.conf` if the body limit
+   changes.
 3. Add an entry to the Unreleased section of `CHANGELOG.md`.

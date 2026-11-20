@@ -5,4 +5,5 @@
  :author "Michael Camilleri"
  :license "MIT"
  :url "https://github.com/pyrmont/tenter"
- :exes [{:type :native :name "tenter" :entry "lib/cli.wattle"}]}
+ :exes [{:type :native :name "tenter" :entry "lib/cli.wattle"}]
+ :docs [{:type :man :files ["man/man1/tenter.1"] :for ["tenter"]}]}

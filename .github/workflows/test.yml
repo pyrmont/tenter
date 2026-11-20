@@ -1,0 +1,40 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out Tenter
+        uses: actions/checkout@v4
+        with:
+          path: tenter
+      - name: Check out Wattle
+        uses: actions/checkout@v4
+        with:
+          repository: pyrmont/wattle
+          path: wattle
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      - name: Build Wattle
+        run: zig build
+        working-directory: wattle
+      - name: Build Tenter
+        run: ../wattle/zig-out/bin/wattle -p ../wattle/zig-out build exe
+        working-directory: tenter
+      - name: Run Wattle tests
+        run: ../wattle/zig-out/bin/wattle test
+        working-directory: tenter

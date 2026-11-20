@@ -1,0 +1,214 @@
+---
+Title: TENTER(1)
+Authors: Michael Camilleri <mike@inqk.net>
+Date: 2026-11-20
+Project: Tenter
+Version: DEVEL
+---
+
+NAME
+====
+
+**tenter** - run commands in response to signed GitHub webhooks
+
+SYNOPSIS
+========
+
+**tenter** [**-H** _address_ | **--host** _address_] [**-p** _port_ | **--port** _port_]
+       [**-r** _dir_ | **--doc-root** _dir_] [**--config-filename** _name_]
+       [**--command-dir** _name_] [**--log-file** _path_] [**--no-log**]
+       [**--no-timestamp**]
+
+**tenter** [**-v** | **--version**]
+
+**tenter** [**-h** | **--help**]
+
+DESCRIPTION
+===========
+
+**tenter** is an HTTP server that runs a command when it receives a POST
+request signed with a secret. It is intended to receive webhooks from
+GitHub.
+
+Each exposed directory is a directory under the document root:
+
+````
+<doc-root>/<directory>/
+├── hooks.edn           the directory's secret
+├── commands/<command>  each command that can be run
+└── log/commands.log    the output of each run
+````
+
+A POST request to ``/run/<command>/in/<directory>`` (with or without a
+trailing ``/``) runs ``<doc-root>/<directory>/commands/<command>`` if the
+request's ``X-Hub-Signature-256`` header is the HMAC-SHA256 of its body
+under the directory's secret, as GitHub sends it. The response is sent once
+the command has started; **tenter** does not wait for the command to
+finish.
+
+**tenter** runs until it is stopped. It prints the address it is listening
+on, then the request line and status of each request to standard output, and
+the reason for each refused request to standard error.
+
+OPTIONS
+=======
+
+- **-H** _address_ | **--host** _address_:
+  The address to listen on. This defaults to ``127.0.0.1``. **tenter** does
+  not use TLS, so it prints a warning if this is not a loopback address. See
+  `<SECURITY>`.
+
+- **-p** _port_ | **--port** _port_:
+  The port to listen on. This defaults to ``4567``. With ``0``, a free port is
+  chosen and printed.
+
+- **-r** _dir_ | **--doc-root** _dir_:
+  The directory that holds each exposed directory. It must be an absolute
+  path. This defaults to ``/var/www``.
+
+- **--config-filename** _name_:
+  The name of the configuration file in each exposed directory. This
+  defaults to ``hooks.edn``.
+
+- **--command-dir** _name_:
+  The name of the directory of commands in each exposed directory. This
+  defaults to ``commands``.
+
+- **--log-file** _path_:
+  The path of the log in each exposed directory, relative to it. It cannot
+  contain ``.`` or ``..``. This defaults to ``log/commands.log``. The log's
+  directory must exist.
+
+- **--no-log**:
+  Discard the output of commands.
+
+- **--no-timestamp**:
+  Do not begin each line of the log with the time.
+
+- **-v** | **--version**:
+  Print the version and exit.
+
+- **-h** | **--help**:
+  Print a help message and exit.
+
+CONFIGURATION
+=============
+
+The configuration file of an exposed directory is one EDN map with a
+``:secret``, a non-empty string:
+
+````
+{:secret "a long random string"}
+````
+
+The file is read as data; nothing in it is evaluated. It is read on each
+request, so a change takes effect without restarting **tenter**. A file that
+is missing, is not a map, has a key other than ``:secret`` or has an empty
+secret refuses every request for its directory.
+
+The secret is the one entered in the webhook's settings on GitHub. The
+webhook's content type does not matter, since the signature covers the body
+as it is sent.
+
+COMMANDS
+========
+
+A command must be an executable file directly in the command directory. A
+symlink in its place is refused, as is a command directory that resolves to a
+path outside its exposed directory. Directory and command names in the URL
+can contain letters, digits, ``.``, ``_`` and ``-``, and must begin with a
+letter, digit or ``_``.
+
+A command is run directly, not through a shell, with no arguments. Its
+working directory is the command directory and its standard input is
+``/dev/null``. Its environment has ``PATH``, ``HOME``, ``LANG``, ``LC_ALL``
+and ``TZ`` from **tenter**'s environment (where set), ``TENTER_DIRECTORY``,
+the name of the exposed directory, and ``TENTER_COMMAND``, the name of the
+command. Nothing else in **tenter**'s environment is passed on.
+
+Only one run of a command is in progress at a time. A request that arrives
+during a run is answered with ``Command queued``, and the command runs once
+more when the run ends, however many requests arrived. Different commands
+run at the same time.
+
+LOG
+===
+
+The standard output and standard error of each run are appended to the log as
+the command writes them. A run begins with an ``Initiating:`` line and ends
+with a ``Finished:`` line that gives the exit status, or a ``Failed:`` line
+if the command could not be started (for example, a script without a ``#!``
+line). Each line begins with the local time:
+
+````
+[2026-11-20 11:47:38 +0900] Initiating: /var/www/example/commands/rebuild
+[2026-11-20 11:47:38 +0900] Building...
+[2026-11-20 11:47:41 +0900] Finished: /var/www/example/commands/rebuild (exit status 0)
+````
+
+If the log cannot be opened, the command is not run.
+
+RESPONSES
+=========
+
+Each response is plain text and closes the connection.
+
+- **200** ``Command initiated`` or ``Command queued``.
+- **400** ``X-Hub-Signature-256 header not set``, ``Command not found`` or
+  ``Bad request``.
+- **403** ``X-Hub-Signature-256 header did not match``. This is the response
+  to a wrong signature, to an unknown directory and to a directory with a
+  configuration file that cannot be used, so that the response does not
+  show which.
+- **404** for any other path and **405** for any method but POST.
+- **408** if the request is not sent within 10 seconds.
+- **411** without ``Content-Length``, **413** for a body over 1 MiB, **431**
+  for headers over 16 KiB and **501** with ``Transfer-Encoding``.
+- **500** if the log cannot be opened.
+- **503** when 32 connections are already being handled.
+
+SECURITY
+========
+
+**tenter** runs programs for anyone who has a directory's secret. Use a long
+random secret, and keep the configuration file readable only by the user
+that runs **tenter**.
+
+**tenter** does not use TLS. Run it on a loopback address behind a reverse
+proxy, such as nginx, that provides HTTPS. Without TLS, the secret is not
+sent, but the payload can be read in transit and a captured request can be
+sent again. A signature covers only the body, so a request can be sent again
+in any case; it runs the command again.
+
+Run **tenter** as an unprivileged user, not as root. Commands run as the same
+user.
+
+Once it is listening, **tenter** gives up the capabilities it does not need,
+including compiling code, reading the environment and making outbound
+connections.
+
+EXAMPLES
+========
+
+Serve the directories in ``/srv/www`` on port 9000:
+
+````
+$ tenter -r /srv/www -p 9000
+Listening on http://127.0.0.1:9000/
+````
+
+Send a signed request with ``curl`` and ``openssl``:
+
+````
+$ body='{}'
+$ sig=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/.* //')
+$ curl -X POST -H "X-Hub-Signature-256: sha256=$sig" --data "$body" \
+    http://127.0.0.1:9000/run/rebuild/in/example/
+Command initiated
+````
+
+EXIT STATUS
+===========
+
+**tenter** exits with 1 if its options are invalid or it cannot listen. It
+otherwise runs until it is stopped.
