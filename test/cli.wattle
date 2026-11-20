@@ -1,0 +1,45 @@
+(import ../deps/gum/test :prefix "")
+(import ../deps/gum/args)
+(import ../lib/cli)
+
+; Returns the options that parse-args gives for args.
+(defn- opts [& args]
+  (get (args/parse-args "tenter" cli/config args) :opts))
+
+(deftest settings-defaults
+  (is (== cli/defaults (cli/settings (opts)))))
+
+(deftest settings-options
+  (def s (cli/settings (opts "-H" "0.0.0.0" "-p" "8080" "-r" "/srv/www/"
+                             "--config-filename" "tenter.edn"
+                             "--command-dir" "bin"
+                             "--log-file" "var/log/run.log"
+                             "--no-timestamp")))
+  (is (== {:host "0.0.0.0"
+           :port 8080
+           :doc-root "/srv/www"
+           :config-filename "tenter.edn"
+           :command-dir "bin"
+           :log-file "var/log/run.log"
+           :timestamp? false}
+          s)))
+
+(deftest settings-no-log
+  (is (= nil (get (cli/settings (opts "--no-log")) :log-file))))
+
+(deftest settings-root-doc-root
+  (is (= "/" (get (cli/settings (opts "-r" "/")) :doc-root))))
+
+(deftest settings-invalid
+  (is (thrown? (cli/settings (opts "-p" "65536"))))
+  (is (thrown? (cli/settings (opts "-p" "1.5"))))
+  (is (thrown? (cli/settings (opts "-r" "www"))))
+  (is (thrown? (cli/settings (opts "--config-filename" "../hooks.edn"))))
+  (is (thrown? (cli/settings (opts "--config-filename" ".."))))
+  (is (thrown? (cli/settings (opts "--command-dir" "a/b"))))
+  (is (thrown? (cli/settings (opts "--command-dir" ""))))
+  (is (thrown? (cli/settings (opts "--log-file" "/var/log/x.log"))))
+  (is (thrown? (cli/settings (opts "--log-file" "log/../../x.log"))))
+  (is (thrown? (cli/settings (opts "--log-file" "log//x.log")))))
+
+(run-tests!)

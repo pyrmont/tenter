@@ -1,0 +1,8 @@
+{:name "tenter"
+ :group "net.inqk"
+ :version "DEVEL"
+ :description "A web server that runs commands for signed GitHub webhooks"
+ :author "Michael Camilleri"
+ :license "MIT"
+ :url "https://github.com/pyrmont/tenter"
+ :exes [{:type :native :name "tenter" :entry "lib/cli.wattle"}]}

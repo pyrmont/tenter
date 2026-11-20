@@ -1,0 +1,122 @@
+(import ../deps/gum/args)
+(import ./version)
+
+(def defaults
+  "The settings used when no option is given."
+  {:host "127.0.0.1"
+   :port 4567
+   :doc-root "/var/www"
+   :config-filename "hooks.edn"
+   :command-dir "commands"
+   :log-file "log/commands.log"
+   :timestamp? true})
+
+(def config
+  "The configuration for Argy-Bargy"
+  {:rules ["--host"            {:help    "The address to listen on."
+                                :default (defaults :host)
+                                :kind    :single
+                                :proxy   "address"
+                                :short   "H"}
+           "--port"            {:help    "The port to listen on."
+                                :default (string (defaults :port))
+                                :kind    :single
+                                :proxy   "port"
+                                :short   "p"}
+           "-------------------------------------------"
+           "--doc-root"        {:help    "The directory that holds each exposed directory."
+                                :default (defaults :doc-root)
+                                :kind    :single
+                                :proxy   "dir"
+                                :short   "r"}
+           "--config-filename" {:help    "The name of the configuration file in each exposed directory."
+                                :default (defaults :config-filename)
+                                :kind    :single
+                                :proxy   "name"}
+           "--command-dir"     {:help    "The name of the directory of commands in each exposed directory."
+                                :default (defaults :command-dir)
+                                :kind    :single
+                                :proxy   "name"}
+           "--log-file"        {:help    "The path of the log in each exposed directory."
+                                :default (defaults :log-file)
+                                :kind    :single
+                                :proxy   "path"}
+           "--no-log"          {:help "Discard the output of commands."
+                                :kind :flag}
+           "--no-timestamp"    {:help "Do not prefix log lines with the time."
+                                :kind :flag}
+           "-------------------------------------------"
+           "--version"         {:help  "Show version information."
+                                :kind  :flag
+                                :noex? true
+                                :short "v"}
+           "-------------------------------------------"]
+   :info {:about "Run commands in response to signed GitHub webhooks."}})
+
+(defn- parse-port [s]
+  (def n (scan-number s))
+  (assertf (and n (int? n) (<= 0 n 65535)) "invalid port: %s" s)
+  n)
+
+(defn- plain-name [option s]
+  (assertf (and (not (empty? s))
+                (not (string/find "/" s))
+                (not (= "." s))
+                (not (= ".." s)))
+           "%s must be a single path component: %s" option s)
+  s)
+
+(defn- relative-path [option s]
+  (def parts (string/split "/" s))
+  (assertf (and (not (empty? s))
+                (not (string/has-prefix? "/" s))
+                (not (find #(or (empty? $) (= "." $) (= ".." $)) parts)))
+           "%s must be a relative path without '.' or '..': %s" option s)
+  s)
+
+(defn settings
+  """
+  Returns the settings in opts, the options from `args/parse-args`, as a map
+  with the keys of `defaults`. `:log-file` is nil when `--no-log` is given.
+  Raises an error if a value is invalid.
+  """
+  [opts]
+  (def doc-root (opts "doc-root"))
+  (assertf (string/has-prefix? "/" doc-root)
+           "--doc-root must be an absolute path: %s" doc-root)
+  {:host (opts "host")
+   :port (parse-port (opts "port"))
+   :doc-root (if (= "/" doc-root) doc-root (string/trimr doc-root "/"))
+   :config-filename (plain-name "--config-filename" (opts "config-filename"))
+   :command-dir (plain-name "--command-dir" (opts "command-dir"))
+   :log-file (unless (opts "no-log")
+               (relative-path "--log-file" (opts "log-file")))
+   :timestamp? (not (opts "no-timestamp"))})
+
+(defn run [args]
+  (def parsed (args/parse-args "tenter" config args))
+  (def err (parsed :err))
+  (def help (parsed :help))
+  (cond
+    (not (empty? help))
+    (do
+      (prin help)
+      (os/exit (if (get-in parsed [:opts "help"]) 0 1)))
+
+    (get-in parsed [:opts "version"])
+    (print version/value)
+
+    (not (empty? err))
+    (do
+      (eprin err)
+      (os/exit 1))
+
+    (try
+      (do
+        (settings (parsed :opts))
+        (error "the server is not implemented yet"))
+      ([e]
+        (eprint "tenter: " e)
+        (os/exit 1)))))
+
+(defn main [script & args] (run args))

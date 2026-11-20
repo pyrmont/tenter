@@ -1,0 +1,73 @@
+(import ../deps/gum/test :prefix "")
+
+; These tests run the executable that `wattle build exe` writes, so build it
+; first and run from the project root.
+(def- exe "zig-out/bin/tenter")
+
+(unless (= :file (os/stat exe :mode))
+  (error (string "cannot find " exe " (run `wattle build exe` from the project root)")))
+
+; Each run reads standard input from /dev/null, so a run cannot wait for input
+; when the tests run in a terminal.
+(defn- run [& args]
+  (with [null (file/open "/dev/null" :r)]
+    (def env {"PATH" (os/getenv "PATH")
+              :in null :out :pipe :err :pipe})
+    (def proc (os/spawn [exe |args] :pe env))
+    (def out (:read (proc :out) :all))
+    (def err (:read (proc :err) :all))
+    [(os/proc-wait proc) out err]))
+
+(deftest cli-help
+  (def [exit-code out err] (run "--help"))
+  (def msg
+    """
+    Usage: tenter [--host <address>] [--port <port>] [--doc-root <dir>] [--config-filename <name>] [--command-dir <name>]
+                  [--log-file <path>] [--no-log] [--no-timestamp]
+
+    Run commands in response to signed GitHub webhooks.
+
+    Options:
+
+     -H, --host <address>            The address to listen on. (Default: 127.0.0.1)
+     -p, --port <port>               The port to listen on. (Default: 4567)
+
+     -r, --doc-root <dir>            The directory that holds each exposed directory. (Default: /var/www)
+         --config-filename <name>    The name of the configuration file in each exposed directory. (Default: hooks.edn)
+         --command-dir <name>        The name of the directory of commands in each exposed directory. (Default: commands)
+         --log-file <path>           The path of the log in each exposed directory. (Default: log/commands.log)
+         --no-log                    Discard the output of commands.
+         --no-timestamp              Do not prefix log lines with the time.
+
+     -v, --version                   Show version information.
+
+     -h, --help                      Show this help message.
+    """)
+  (is (= 0 exit-code))
+  (is (== (string msg "\n") out))
+  (is (= nil err)))
+
+(deftest cli-version
+  (def [exit-code out err] (run "--version"))
+  (is (= 0 exit-code))
+  (is (string/has-prefix? "DEVEL" out))
+  (is (= nil err)))
+
+(deftest cli-bad-option
+  (def [exit-code out err] (run "--bad-option"))
+  (def msg
+    """
+    tenter: unrecognized option '--bad-option'
+    Try 'tenter --help' for more information.
+    """)
+  (is (= 1 exit-code))
+  (is (= nil out))
+  (is (== (string msg "\n") err)))
+
+(deftest cli-bad-port
+  (def [exit-code out err] (run "-p" "http"))
+  (is (= 1 exit-code))
+  (is (= nil out))
+  (is (== "tenter: invalid port: http\n" err)))
+
+(run-tests!)
