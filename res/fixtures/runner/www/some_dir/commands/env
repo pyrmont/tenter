@@ -1,0 +1,7 @@
+#!/bin/sh
+
+echo "pwd=$(pwd -P)"
+echo "TENTER_DIRECTORY=$TENTER_DIRECTORY"
+echo "TENTER_COMMAND=$TENTER_COMMAND"
+echo "TENTER_TEST_SECRET=${TENTER_TEST_SECRET:-unset}"
+echo "PATH=${PATH:-unset}"

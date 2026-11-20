@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "to stdout"
+echo "to stderr" >&2
+exit 3

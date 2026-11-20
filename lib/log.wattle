@@ -1,0 +1,43 @@
+; Lines for an exposed directory's log. With timestamps on, each line begins
+; with the local time, as in `[2026-11-20 11:47:38 +0900] `.
+
+(defn offset
+  "Returns the local time zone's offset from UTC at time t, as in `+0900`."
+  [t]
+  (def secs (- (os/mktime (os/date t true)) t))
+  (def mins (math/floor (/ (math/abs secs) 60)))
+  (string/format "%s%02d%02d" (if (neg? secs) "-" "+")
+                 (math/floor (/ mins 60)) (% mins 60)))
+
+(defn timestamp
+  "Returns time t as local time with its offset, as in `2026-11-20 11:47:38 +0900`."
+  [t]
+  (string (os/strftime "%Y-%m-%d %H:%M:%S" t true) " " (offset t)))
+
+(defn line
+  """
+  Returns text as a line of the log, ending in a newline, with the time t in
+  front if timestamp? is true.
+  """
+  [timestamp? t text]
+  (if timestamp?
+    (string "[" (timestamp t) "] " text "\n")
+    (string text "\n")))
+
+(defn splitter
+  """
+  Returns a function that takes chunks of a stream's output and returns a
+  vector of the complete lines in them, without their newlines. Bytes after
+  the last newline are kept for the next chunk. Called with nil, the function
+  returns what is left as one last line, or an empty vector if nothing is.
+  """
+  []
+  (var rest "")
+  (fn [chunk]
+    (if (nil? chunk)
+      (let [last-line rest]
+        (set rest "")
+        (if (empty? last-line) [] [last-line]))
+      (let [parts (string/split "\n" (string rest chunk))]
+        (set rest (last parts))
+        (vec (array/slice parts 0 -2))))))

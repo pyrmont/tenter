@@ -27,14 +27,18 @@ tenter/
 │   ├── cli.wattle       # Command line (Gum's Argy-Bargy port), settings and `main`
 │   ├── paths.wattle     # Valid names; resolving an exposed directory
 │   ├── auth.wattle      # hooks.edn, HMAC-SHA256 signatures, `auth/check`
+│   ├── runner.wattle    # Command paths, spawning, the per-command queue
+│   ├── log.wattle       # Timestamped log lines, splitting output into lines
 │   └── version.wattle   # Version label, fixed at compile time
 ├── test/
 │   ├── auth.wattle        # Names, directories, secrets and signatures
 │   ├── cli.wattle         # Settings from options
+│   ├── runner.wattle      # Commands, logs, environment and the queue
 │   └── executable.wattle  # Runs zig-out/bin/tenter
 ├── res/
 │   ├── fixtures/          # Trees the tests copy, one directory per test file
-│   │   └── auth/          # www/ (a document root) and outside/
+│   │   ├── auth/          # www/ (a document root) and outside/
+│   │   └── runner/        # www/ with commands for each case, outside/
 │   └── helpers/
 │       └── util.wattle    # Copies a fixture to tmp/test/ (imported as `h`)
 ├── deps/gum/            # Vendored with `wattle gum args test`
@@ -43,8 +47,16 @@ tenter/
 └── PLAN.md              # Design and milestones
 ```
 
-`PLAN.md` lists the modules still to be written (`server`, `runner` and
-`log`).
+`PLAN.md` lists the module still to be written (`server`).
+
+## Runs
+
+`runner/start` runs a command on the event loop and returns at once. The
+state of the runs is `runs`, a `var` holding a persistent map from a
+command's resolved path to `:running` or `:pending`. Only `runner/start` and
+the run loop change it. A run's output is read from one pipe (stderr is sent
+to stdout) and written to the log a line at a time, so the log shows output
+as it arrives. Tests wait for a run with `runner/status`.
 
 ## Security
 
@@ -78,6 +90,9 @@ fails to parse or means something else:
 - **Mutable literals use `!`**: `![]` is an array, `!{}` a table and `!""` a
   buffer. `@[]` and `@{}` are parse errors. Keep them for accumulating inside
   one function, such as building a response in a buffer.
+- **Functions that mutate end in `!`**: `buffer/clear!`, `buffer/push!`,
+  `array/push!`, `put!`. Janet's names without `!` (`buffer/clear`) do not
+  exist.
 - **`merge` returns a mutable table.** Extend a map with
   `(assoc m :k v :k2 v2)`.
 - **There is no persistent `update`**; write `(assoc m k (f (get m k)))`.
@@ -92,8 +107,9 @@ fails to parse or means something else:
 - **Splice is `|`**: `(f |args)`, `["cmd" |args]`. A `;` starts a comment;
   `#` does not.
 - **Short functions are `#(...)`**: `$` (or `$0`) is the first argument, `$1`
-  the second and `$&` the rest. A short function whose body is a collection
-  literal needs `do`, as in `#(do {:path $})`.
+  the second and `$&` the rest. `|(...)` is a splice, not a function. A
+  short function whose body is a collection literal needs `do`, as in
+  `#(do {:path $})`.
 - **Quasiquote is a backtick and unquote is `~`**, as in a PEG grammar that
   calls a function: `` `(/ (<- :d) ~f) ``. A backtick is not a string
   delimiter. Use `"..."` or a raw string, `"""..."""`, which drops the line

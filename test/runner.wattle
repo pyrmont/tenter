@@ -1,0 +1,204 @@
+(import ../deps/gum/test :prefix "")
+(import ../res/helpers/util :as h)
+(import ../lib/cli)
+(import ../lib/log)
+(import ../lib/runner)
+
+(def- dir "tmp/test/runner")
+(def- root (string (os/cwd) "/" dir "/www"))
+(def- settings (assoc cli/defaults :doc-root root))
+
+; res/fixtures/runner has a document root, www/, and outside/, which
+; www/some_dir/commands/elsewhere links to. some_dir's commands are:
+;
+; - cmd, which prints "Hello world";
+; - fail, which prints to stdout and stderr and exits with 3;
+; - partial, which ends without a newline;
+; - env, which prints its working directory and environment;
+; - slow, which prints "start", waits 0.3 seconds and prints "end";
+; - noshebang, an executable without a #! line;
+; - not_exec, which is not executable;
+; - alias, a symlink to cmd, and elsewhere, a symlink out of the directory;
+; - subdir, a directory.
+(defn- make-root []
+  (h/copy "runner" dir)
+  (os/realpath root))
+
+(defn- site [real-root name] (string real-root "/" name))
+
+(defn- wait-for
+  "Waits until the command at path is not running, for up to 5 seconds."
+  [path]
+  (var n 0)
+  (while (and (runner/status path) (< n 500))
+    (ev/sleep 0.01)
+    (++ n))
+  (assertf (nil? (runner/status path)) "%s is still running" path))
+
+(def- stamp-peg
+  (peg/compile
+    `(* "[" (repeat 4 :d) "-" (repeat 2 :d) "-" (repeat 2 :d) " "
+        (repeat 2 :d) ":" (repeat 2 :d) ":" (repeat 2 :d) " "
+        (set "+-") (repeat 4 :d) "] ")))
+
+(defn- log-lines
+  """
+  Returns the lines of the log at path without their timestamps. Raises an
+  error if a line does not begin with one.
+  """
+  [path]
+  (def lines (string/split "\n" (string/trimr (slurp path) "\n")))
+  (vec (map (fn [l]
+              (assertf (peg/match stamp-peg l) "no timestamp: %q" l)
+              (string/slice l 28))
+            lines)))
+
+(deftest log-line
+  (is (== "plain\n" (log/line false 0 "plain")))
+  (is (peg/match stamp-peg (log/line true (os/time) "x")))
+  (def offset (log/offset 0))
+  (is (= 5 (length offset)))
+  (is (has-value? ["+" "-"] (string/slice offset 0 1))))
+
+(deftest splitter
+  (def s (log/splitter))
+  (is (== ["a"] (s "a\nb")))
+  (is (== ["bc" ""] (s "c\n\nd")))
+  (is (== ["d"] (s nil)))
+  (is (== [] (s nil))))
+
+(deftest command-path
+  (def real-root (make-root))
+  (def some (site real-root "some_dir"))
+  (is (= (string some "/commands/cmd") (runner/command-path settings some "cmd")))
+  (each name ["not_exec" "alias" "elsewhere" "subdir" "missing" ".." "a/b" ""]
+    (is (= nil (runner/command-path settings some name)) name))
+  (is (= nil (runner/command-path settings (site real-root "linked_cmds") "cmd"))))
+
+(deftest start-missing
+  (def real-root (make-root))
+  (is (= :missing (runner/start settings (site real-root "some_dir") "not_exec")))
+  (is (= :missing (runner/start settings (site real-root "some_dir") "elsewhere"))))
+
+(deftest start-no-log-dir
+  (def real-root (make-root))
+  (is (= :no-log (runner/start settings (site real-root "no_log_dir") "cmd")))
+  (is (= :started (runner/start (assoc settings :log-file nil)
+                                (site real-root "no_log_dir") "cmd")))
+  (wait-for (runner/command-path settings (site real-root "no_log_dir") "cmd")))
+
+(deftest run-cmd
+  (def real-root (make-root))
+  (def some (site real-root "some_dir"))
+  (def path (string some "/commands/cmd"))
+  (is (= :started (runner/start settings some "cmd")))
+  (wait-for path)
+  (is (== [(string "Initiating: " path)
+           "Hello world"
+           (string "Finished: " path " (exit status 0)")]
+          (log-lines (string some "/log/commands.log")))))
+
+(deftest run-fail
+  (def real-root (make-root))
+  (def some (site real-root "some_dir"))
+  (def path (string some "/commands/fail"))
+  (runner/start settings some "fail")
+  (wait-for path)
+  (is (== [(string "Initiating: " path)
+           "to stdout"
+           "to stderr"
+           (string "Finished: " path " (exit status 3)")]
+          (log-lines (string some "/log/commands.log")))))
+
+(deftest run-partial
+  (def real-root (make-root))
+  (def some (site real-root "some_dir"))
+  (def path (string some "/commands/partial"))
+  (runner/start settings some "partial")
+  (wait-for path)
+  (is (== [(string "Initiating: " path)
+           "first"
+           "no newline"
+           (string "Finished: " path " (exit status 0)")]
+          (log-lines (string some "/log/commands.log")))))
+
+(deftest run-noshebang
+  (def real-root (make-root))
+  (def some (site real-root "some_dir"))
+  (def path (string some "/commands/noshebang"))
+  (runner/start settings some "noshebang")
+  (wait-for path)
+  (def lines (log-lines (string some "/log/commands.log")))
+  (is (= (string "Initiating: " path) (first lines)))
+  (is (not (has-value? lines "no interpreter line")))
+  (is (= 2 (length lines)))
+  (is (string/has-prefix? "Failed: " (last lines)))
+  (is (string/find path (last lines))))
+
+(deftest run-env
+  (def real-root (make-root))
+  (def some (site real-root "some_dir"))
+  (def path (string some "/commands/env"))
+  (os/setenv "TENTER_TEST_SECRET" "leaked")
+  (def s (assoc settings :env {"PATH" "/usr/bin:/bin"}))
+  (runner/start s some "env")
+  (wait-for path)
+  (os/setenv "TENTER_TEST_SECRET" nil)
+  (is (== [(string "Initiating: " path)
+           (string "pwd=" some "/commands")
+           "TENTER_DIRECTORY=some_dir"
+           "TENTER_COMMAND=env"
+           "TENTER_TEST_SECRET=unset"
+           "PATH=/usr/bin:/bin"
+           (string "Finished: " path " (exit status 0)")]
+          (log-lines (string some "/log/commands.log")))))
+
+(deftest base-env
+  (def env (runner/base-env))
+  (is (= (os/getenv "PATH") (get env "PATH")))
+  (is (= nil (get env "TENTER_TEST_SECRET")))
+  (each k (keys env)
+    (is (has-value? ["PATH" "HOME" "LANG" "LC_ALL" "TZ"] k) k)))
+
+(deftest run-no-log
+  (def real-root (make-root))
+  (def some (site real-root "some_dir"))
+  (def path (string some "/commands/cmd"))
+  (runner/start (assoc settings :log-file nil) some "cmd")
+  (wait-for path)
+  (is (= :directory (os/stat (string some "/log") :mode)))
+  (is (= nil (os/stat (string some "/log/commands.log")))))
+
+(deftest run-no-timestamp
+  (def real-root (make-root))
+  (def some (site real-root "some_dir"))
+  (def path (string some "/commands/cmd"))
+  (runner/start (assoc settings :timestamp? false) some "cmd")
+  (wait-for path)
+  (is (== (string "Initiating: " path "\n"
+                  "Hello world\n"
+                  "Finished: " path " (exit status 0)\n")
+          (slurp (string some "/log/commands.log")))))
+
+(deftest queue
+  (def real-root (make-root))
+  (def some (site real-root "some_dir"))
+  (def path (string some "/commands/slow"))
+  (is (= :started (runner/start settings some "slow")))
+  (is (= :running (runner/status path)))
+  (is (= :queued (runner/start settings some "slow")))
+  (is (= :queued (runner/start settings some "slow")))
+  (is (= :queued (runner/start settings some "slow")))
+  (is (= :pending (runner/status path)))
+  ; Another command in the same directory is not held up.
+  (is (= :started (runner/start settings some "cmd")))
+  (wait-for path)
+  (def lines (log-lines (string some "/log/commands.log")))
+  (is (= 2 (length (filter #(= (string "Initiating: " path) $) lines))))
+  (is (= 2 (length (filter #(= "end" $) lines))))
+  ; A request after the runs have finished starts a new run.
+  (is (= :started (runner/start settings some "slow")))
+  (wait-for path))
+
+(defer (h/rmrf dir)
+  (run-tests!))

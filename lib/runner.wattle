@@ -1,0 +1,127 @@
+; Runs the commands of exposed directories.
+;
+; A command is run with `os/spawn` and an argument vector, never through a
+; shell. Its stdout and stderr go through one pipe, and each line is written
+; to the directory's log as it is read. At most one run of a command is in
+; progress at a time: a request that arrives during a run is recorded, and
+; the command runs once more when the run ends, however many requests
+; arrived.
+
+(import ./log)
+(import ./paths)
+
+(def- env-names ["PATH" "HOME" "LANG" "LC_ALL" "TZ"])
+
+(defn base-env
+  """
+  Returns the variables of the current environment that a command is given,
+  as a map: `PATH`, `HOME`, `LANG`, `LC_ALL` and `TZ`, where set. Call it
+  before the server gives up access to the environment.
+  """
+  []
+  (var env {})
+  (each name env-names
+    (when-let [v (os/getenv name)]
+      (set env (assoc env name v))))
+  env)
+
+(defn- real [path]
+  (try (os/realpath path) ([_] nil)))
+
+(defn command-path
+  """
+  Returns the resolved path of the command called name in site, the resolved
+  path of an exposed directory. Returns nil unless name is a valid name and
+  the path resolves to an executable regular file directly in the command
+  directory, so a symlink to a file elsewhere is refused.
+  """
+  [settings site name]
+  (when (paths/valid-name? name)
+    (def dir (real (string site "/" (settings :command-dir))))
+    (def path (when dir (real (string dir "/" name))))
+    (when (and dir path
+               (paths/inside? site dir)
+               (= (string dir "/" name) path)
+               (= :file (os/stat path :mode))
+               (not= 0 (band 8r111 (os/stat path :int-permissions))))
+      path)))
+
+(defn log-path
+  "Returns the path of the log for site, or nil if logging is off."
+  [settings site]
+  (when-let [file (settings :log-file)]
+    (string site "/" file)))
+
+; The commands that are running, by resolved path. The value is :running, or
+; :pending if a request arrived during the run.
+(var- runs {})
+
+(defn status
+  "Returns :running or :pending for the command at path, or nil if it is not running."
+  [path]
+  (get runs path))
+
+(defn- open-log [path]
+  (if path (file/open path :a) (file/open "/dev/null" :w)))
+
+(defn- run-once
+  "Runs the command at path once, writing its output to the log, and returns its exit code."
+  [settings site name path]
+  (def stamp? (settings :timestamp?))
+  (with [out (open-log (log-path settings site))]
+    (defn write [text]
+      (file/write out (log/line stamp? (os/time) text))
+      (file/flush out))
+    (write (string "Initiating: " path))
+    (with [null (file/open "/dev/null" :r)]
+      (def env (assoc (or (settings :env) (base-env))
+                      "TENTER_DIRECTORY" (last (string/split "/" site))
+                      "TENTER_COMMAND" name
+                      :cd (string site "/" (settings :command-dir))
+                      :in null :out :pipe :err :out))
+      (def proc (try (os/spawn [path] :e env)
+                     ([e] (write (string "Failed: " e)) nil)))
+      (when proc
+        (def lines (log/splitter))
+        (def buf !"")
+        (while (ev/read (proc :out) 4096 (buffer/clear! buf))
+          (each text (lines (string buf)) (write text)))
+        (each text (lines nil) (write text))
+        (def code (os/proc-wait proc))
+        (os/proc-close proc)
+        (write (string/format "Finished: %s (exit status %d)" path code))
+        code))))
+
+(defn- run-loop [settings site name path]
+  (forever
+    (try (run-once settings site name path)
+         ([e] (eprint "tenter: running " path " failed: " e)))
+    (if (= :pending (get runs path))
+      (set runs (assoc runs path :running))
+      (do (set runs (dissoc runs path))
+          (break)))))
+
+(defn start
+  """
+  Starts the command called name in site, the resolved path of an exposed
+  directory, unless it is already running. Returns:
+
+  - `:started` if a run has begun;
+  - `:queued` if the command is running, in which case it runs once more
+    when the current run ends;
+  - `:missing` if there is no such command (see `command-path`);
+  - `:no-log` if the log cannot be opened for appending.
+
+  The run happens on the event loop, so the caller does not wait for it.
+  """
+  [settings site name]
+  (def path (command-path settings site name))
+  (cond
+    (nil? path) :missing
+    (get runs path) (do (set runs (assoc runs path :pending)) :queued)
+    (not (try (do (:close (open-log (log-path settings site))) true)
+              ([_] false))) :no-log
+    (do
+      (set runs (assoc runs path :running))
+      (ev/go (fn [] (run-loop settings site name path)))
+      :started)))

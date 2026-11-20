@@ -16,3 +16,15 @@ since the most recent release are under Unreleased.
 - Directory and command names in the URL are limited to letters, digits,
   `.`, `_` and `-`, beginning with a letter, digit or `_`. An exposed
   directory that resolves to a path outside the document root is refused.
+- Commands are run directly rather than through a shell, with their output
+  timestamped by Tenter. The log ends each run with a `Finished:` line that
+  gives the exit status, or a `Failed:` line if the command could not be
+  started.
+- A command must be an executable file directly in the command directory;
+  a symlink in its place is refused. If the log cannot be opened, the
+  command is not run.
+- A command that is already running is not started again. Requests that
+  arrive during a run cause one more run when it ends.
+- Commands get only `PATH`, `HOME`, `LANG`, `LC_ALL` and `TZ` from Tenter's
+  environment, plus `TENTER_DIRECTORY` and `TENTER_COMMAND`, and read
+  standard input from `/dev/null`.
