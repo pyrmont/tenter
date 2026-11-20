@@ -1,7 +1,10 @@
 # Tenter
 
+[![Latest Release][release-badge]][release-latest]
 [![Test Status][test-badge]][test-status]
 
+[release-badge]: https://img.shields.io/github/v/release/pyrmont/tenter
+[release-latest]: https://github.com/pyrmont/tenter/releases/latest
 [test-badge]: https://github.com/pyrmont/tenter/actions/workflows/test.yml/badge.svg
 [test-status]: https://github.com/pyrmont/tenter/actions/workflows/test.yml
 
@@ -20,6 +23,27 @@ Tenter is its own HTTP server and does not use TLS. It listens on
 provides HTTPS.
 
 ## Building
+
+#### Pre-Built
+
+Pre-built binaries of `tenter` are available as tarballs via the
+[Releases][github-releases] section on GitHub for:
+
+- Linux (x86-64 and aarch64, statically linked)
+- macOS (aarch64)
+
+[github-releases]: https://github.com/pyrmont/tenter/releases
+
+```console
+$ curl -LO https://github.com/pyrmont/tenter/releases/latest/download/tenter-<version>-<platform>-<arch>.tar.gz
+$ tar -xzf tenter-<version>-<platform>-<arch>.tar.gz
+$ cd tenter-<version>
+```
+
+Each tarball holds the binary, the man page and the examples in
+`res/deploy/`.
+
+#### From Source
 
 To build the `tenter` binary from source, you need [Zig][] 0.17.1 and
 Wattle, installed with the `<prefix>/share/wattle` support files. `-p` gives

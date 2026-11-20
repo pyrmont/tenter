@@ -50,9 +50,12 @@ tenter/
 │   ├── tenter.1.predoc  # Man page source (Predoc)
 │   └── tenter.1         # Generated man page (committed)
 ├── deps/gum/            # Vendored with `wattle gum args test`
-├── .github/workflows/test.yml  # Builds Wattle, builds Tenter, runs the tests
+├── .github/workflows/
+│   ├── test.yml         # Builds Wattle, builds Tenter, runs the tests
+│   └── release.yml      # Builds release archives and drafts a GitHub release
 ├── info.edn             # Project and build declaration
 ├── CHANGELOG.md         # Changes by release, with an Unreleased section
+├── RELEASING.md         # Steps for making a release
 └── PLAN.md              # Design and milestones
 ```
 
