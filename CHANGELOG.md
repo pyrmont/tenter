@@ -5,12 +5,15 @@ since the most recent release are under Unreleased.
 
 ## Unreleased
 
-- Rewritten in Wattle as a single executable, `tenter`, with no Ruby
-  dependencies. Tenter is its own HTTP server and listens on
-  `127.0.0.1:4567` by default (`--host`, `--port`); use a reverse proxy
-  such as nginx for HTTPS. Settings that were given in `config.ru` are now
-  command-line options, and `--no-log` replaces setting `log_file` to
-  `nil`.
+The first release of Tenter written in Wattle. It replaces the Ruby gem,
+last released as 0.2.0, whose source is on the `ruby` branch. The
+differences from the gem are:
+
+- Tenter is a single executable, `tenter`, with no Ruby dependencies. It
+  is its own HTTP server and listens on `127.0.0.1:4567` by default
+  (`--host`, `--port`); use a reverse proxy such as nginx for HTTPS.
+  Settings that were given in `config.ru` are now command-line options,
+  and `--no-log` replaces setting `log_file` to `nil`.
 - Requests are limited to 16 KiB of headers and 1 MiB of body, must give
   `Content-Length`, and must arrive within 10 seconds. At most 32
   connections are handled at once. Only `POST` to a command URL is
