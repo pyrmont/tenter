@@ -50,9 +50,11 @@
   (is (= nil err)))
 
 (deftest cli-version
+  ; The label is :version from info.edn, followed for DEVEL by the commit.
+  (def version (get (first (parse-all (slurp "info.edn"))) :version))
   (def [exit-code out err] (run "--version"))
   (is (= 0 exit-code))
-  (is (string/has-prefix? "DEVEL" out))
+  (is (string/has-prefix? version out))
   (is (= nil err)))
 
 (deftest cli-bad-option
