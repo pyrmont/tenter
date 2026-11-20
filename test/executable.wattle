@@ -1,4 +1,6 @@
 (import ../deps/gum/test :prefix "")
+(import ../res/helpers/util :as h)
+(import ../lib/auth)
 
 ; These tests run the executable that `wattle build exe` writes, so build it
 ; first and run from the project root.
@@ -70,4 +72,58 @@
   (is (= nil out))
   (is (== "tenter: invalid port: http\n" err)))
 
-(run-tests!)
+; Starts the executable with args and returns `[proc port]` once it prints
+; the address it is listening on.
+(defn- start-server [& args]
+  (with [null (file/open "/dev/null" :r)]
+    (def proc (os/spawn [exe "-p" "0" |args] :pe
+                        {"PATH" (os/getenv "PATH") :in null :out :pipe :err :pipe}))
+    (def buf !"")
+    (while (and (not (string/find "\n" buf))
+                (ev/read (proc :out) 256 buf 5)))
+    (def line (string buf))
+    (assertf (string/has-prefix? "Listening on http://" line) "unexpected output: %q" line)
+    [proc (scan-number (last (peg/match `(* (thru ":") (thru ":") (<- (some :d))) line)))]))
+
+; Stops the executable and returns what it wrote to stderr.
+(defn- stop-server [proc]
+  (os/proc-kill proc true)
+  (def err (string (or (:read (proc :err) :all) "")))
+  (os/proc-close proc)
+  err)
+
+(def- dir "tmp/test/executable")
+
+(deftest serve-after-sandbox
+  (h/copy "runner" dir)
+  (def root (os/realpath (string dir "/www")))
+  (def [proc port] (start-server "-r" root))
+  (defer (stop-server proc)
+    (def sig (auth/sign "ABCDEFG" "{}"))
+    (with [c (net/connect "127.0.0.1" port)]
+      (net/write c (string "POST /run/cmd/in/some_dir HTTP/1.1\r\n"
+                           "X-Hub-Signature-256: " sig "\r\n"
+                           "Content-Length: 2\r\n\r\n{}"))
+      (is (string/has-prefix? "HTTP/1.1 200 " (string (net/read c :all)))))
+    (def log (string root "/some_dir/log/commands.log"))
+    (var n 0)
+    (while (and (< n 500)
+                (not (string/find "Finished:" (if (os/stat log) (slurp log) ""))))
+      (ev/sleep 0.01)
+      (++ n))
+    (is (string/find "] Hello world\n" (slurp log)))
+    (is (string/find "(exit status 0)" (slurp log)))))
+
+(deftest warn-on-public-host
+  (h/copy "runner" dir)
+  (def [proc port] (start-server "-H" "0.0.0.0" "-r" (os/realpath (string dir "/www"))))
+  (is (string/find "warning: listening on 0.0.0.0" (stop-server proc))))
+
+(deftest bad-doc-root
+  (def [exit-code out err] (run "-r" "relative"))
+  (is (= 1 exit-code))
+  (is (= nil out))
+  (is (== "tenter: --doc-root must be an absolute path: relative\n" err)))
+
+(defer (h/rmrf dir)
+  (run-tests!))

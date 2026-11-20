@@ -24,7 +24,8 @@ is done.
 ```
 tenter/
 ├── lib/
-│   ├── cli.wattle       # Command line (Gum's Argy-Bargy port), settings and `main`
+│   ├── cli.wattle       # Command line (Gum's Argy-Bargy port), settings, `serve` and `main`
+│   ├── server.wattle    # HTTP: reading requests, limits, routing, responses
 │   ├── paths.wattle     # Valid names; resolving an exposed directory
 │   ├── auth.wattle      # hooks.edn, HMAC-SHA256 signatures, `auth/check`
 │   ├── runner.wattle    # Command paths, spawning, the per-command queue
@@ -34,7 +35,8 @@ tenter/
 │   ├── auth.wattle        # Names, directories, secrets and signatures
 │   ├── cli.wattle         # Settings from options
 │   ├── runner.wattle      # Commands, logs, environment and the queue
-│   └── executable.wattle  # Runs zig-out/bin/tenter
+│   ├── server.wattle      # Parsing, routing and requests over a socket
+│   └── executable.wattle  # Runs zig-out/bin/tenter, including a sandboxed run
 ├── res/
 │   ├── fixtures/          # Trees the tests copy, one directory per test file
 │   │   ├── auth/          # www/ (a document root) and outside/
@@ -47,7 +49,28 @@ tenter/
 └── PLAN.md              # Design and milestones
 ```
 
-`PLAN.md` lists the module still to be written (`server`).
+## Requests
+
+`server/handler` answers each connection in its own fiber. A request is
+refused on its head (`server/check-head`: path, method and length) before
+its body is read, and its body is read in full before `auth/check`, since
+the signature covers the body. `server/answer` then calls `runner/start`.
+Each step returns a reply map (`:status`, `:body`, and `:reason` for the
+server's stderr), and only the handler writes to the socket.
+
+Connection fibers do not see the dynamic bindings of the code that started
+the server, so `server/handler` captures `*out*` and `*err*` when it is
+made; the tests rely on this to read the server's output. Test-only
+settings, `:read-timeout` and `:max-connections`, override the limits in
+`lib/server.wattle`. Pass changes to settings as a function that `assoc`s
+(a map of changes cannot hold `nil`, so cannot turn a setting off).
+
+The sandbox call is in `cli/serve`, after the listener is open and the
+environment for commands has been read. Code that runs after it cannot
+compile, read the environment, connect out or unmarshal. Check a change
+that touches the request path with the built executable
+(`test/executable.wattle`), not only in-process, since only the executable
+calls `sandbox`.
 
 ## Runs
 
@@ -124,7 +147,7 @@ fails to parse or means something else:
 - **`doc` is a macro**, so do not bind it as a name. `chr` is a compile-time
   macro that takes a literal.
 - **Error helpers**: `error`, `errorf`, `assertf`, and `try` with a `([e] ...)`
-  handler.
+  handler. `net/read` raises the string `"timeout"` when its timeout passes.
 
 `man 7 wattle` describes the language and `../wattle/notes/LANGUAGE.md`
 records how it differs from Janet. When unsure of a binding, check it with

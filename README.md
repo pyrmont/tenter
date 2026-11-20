@@ -10,8 +10,9 @@ Tenter exposes URLs in the form `/run/<command>/in/<directory>`. A POST
 request to such a URL that is signed with the directory's secret causes
 Tenter to run `<doc-root>/<directory>/commands/<command>`.
 
-Tenter is being rewritten. `PLAN.md` describes the design; the server itself
-is not written yet.
+Tenter is its own HTTP server and does not use TLS. It listens on
+`127.0.0.1` by default, for use behind a reverse proxy such as nginx that
+provides HTTPS.
 
 ## Building
 

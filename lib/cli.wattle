@@ -1,4 +1,6 @@
 (import ../deps/gum/args)
+(import ./runner)
+(import ./server)
 (import ./version)
 
 (def defaults
@@ -93,6 +95,35 @@
                (relative-path "--log-file" (opts "log-file")))
    :timestamp? (not (opts "no-timestamp"))})
 
+(def forbidden
+  """
+  The capabilities given up once the server is listening. Tenter keeps file
+  reads and writes, listening for connections, running subprocesses and
+  exiting. It also keeps `:fs-temp`, because `file/open` in append mode,
+  which writing the logs needs, is refused if any file system capability
+  has been given up.
+  """
+  [:asm :chroot :compile :env :ffi :locale :modules :net-connect
+   :sandbox :signal :threads :unmarshal])
+
+(defn serve
+  """
+  Starts the server with settings, then gives up the capabilities in
+  `forbidden` and prints the address. The environment that commands get is
+  read before then.
+  """
+  [settings]
+  (def s (assoc settings :env (runner/base-env)))
+  (unless (has-value? server/loopback-hosts (s :host))
+    (eprint "tenter: warning: listening on " (s :host)
+            ", which other machines can reach; Tenter does not use TLS"))
+  (def listener (server/start s))
+  (sandbox |forbidden)
+  (def [host port] (net/localname listener))
+  (print "Listening on http://" host ":" port "/")
+  (flush)
+  listener)
+
 (defn run [args]
   (def parsed (args/parse-args "tenter" config args))
   (def err (parsed :err))
@@ -112,9 +143,7 @@
       (os/exit 1))
 
     (try
-      (do
-        (settings (parsed :opts))
-        (error "the server is not implemented yet"))
+      (serve (settings (parsed :opts)))
       ([e]
         (eprint "tenter: " e)
         (os/exit 1)))))

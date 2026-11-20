@@ -6,8 +6,18 @@ since the most recent release are under Unreleased.
 ## Unreleased
 
 - Rewritten in Wattle as a single executable, `tenter`, with no Ruby
-  dependencies. Settings that were given in `config.ru` are now command-line
-  options, and `--no-log` replaces setting `log_file` to `nil`.
+  dependencies. Tenter is its own HTTP server and listens on
+  `127.0.0.1:4567` by default (`--host`, `--port`); use a reverse proxy
+  such as nginx for HTTPS. Settings that were given in `config.ru` are now
+  command-line options, and `--no-log` replaces setting `log_file` to
+  `nil`.
+- Requests are limited to 16 KiB of headers and 1 MiB of body, must give
+  `Content-Length`, and must arrive within 10 seconds. At most 32
+  connections are handled at once. Only `POST` to a command URL is
+  answered.
+- Once listening, Tenter gives up the capabilities it does not need, such
+  as compiling code, reading the environment and making outbound
+  connections.
 - Requests are authenticated with `X-Hub-Signature-256` (HMAC-SHA256)
   instead of `X-Hub-Signature` (HMAC-SHA1), compared in constant time.
 - Each exposed directory's configuration is `hooks.edn`, a map with a

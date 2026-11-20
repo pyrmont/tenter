@@ -1,0 +1,224 @@
+(import ../deps/gum/test :prefix "")
+(import ../res/helpers/util :as h)
+(import ../lib/auth)
+(import ../lib/cli)
+(import ../lib/runner)
+(import ../lib/server)
+
+(def- dir "tmp/test/server")
+
+; The server's output for the requests, which the tests read instead of
+; letting it reach the terminal.
+(def- out !"")
+(def- err !"")
+
+; Uses res/fixtures/runner (see test/runner.wattle). some_dir's secret is
+; "ABCDEFG", its cmd prints "Hello world" and its slow command takes 0.3
+; seconds.
+; tweak, if given, is a function that takes the settings and returns those to
+; use. (A map of changes cannot turn a setting off, since a map cannot hold
+; nil.)
+(defn- start-server [& {:keys [tweak] :or {tweak identity}}]
+  (h/copy "runner" dir)
+  (buffer/clear! out)
+  (buffer/clear! err)
+  (def s (tweak (assoc cli/defaults
+                       :doc-root (os/realpath (string dir "/www"))
+                       :port 0
+                       :read-timeout 0.5
+                       :env {"PATH" "/usr/bin:/bin"})))
+  (with-dyns [*out* out *err* err]
+    (server/start s)))
+
+(defn- port-of [listener] (get (net/localname listener) 1))
+
+(defn- exchange
+  "Sends text to the server and returns `[status body]` of the response."
+  [listener text]
+  (with [c (net/connect "127.0.0.1" (port-of listener))]
+    (net/write c text)
+    (def resp (string (or (net/read c :all) "")))
+    (def status-line (first (string/split "\r\n" resp)))
+    (def i (string/find "\r\n\r\n" resp))
+    [(scan-number (get (string/split " " status-line) 1 ""))
+     (if i (string/slice resp (+ i 4)) "")]))
+
+(defn- post [listener path body & {:keys [sig headers]}]
+  (def buf !"")
+  (buffer/push! buf "POST " path " HTTP/1.1\r\nHost: localhost\r\n")
+  (when sig (buffer/push! buf "X-Hub-Signature-256: " sig "\r\n"))
+  (each [k v] (pairs (or headers {})) (buffer/push! buf k ": " v "\r\n"))
+  (buffer/push! buf "Content-Length: " (string (length body)) "\r\n\r\n" body)
+  (exchange listener (string buf)))
+
+(defn- valid-sig [body] (auth/sign "ABCDEFG" body))
+
+(defn- wait-for [path]
+  (var n 0)
+  (while (and (runner/status path) (< n 500))
+    (ev/sleep 0.01)
+    (++ n)))
+
+(defn- cmd-path [name]
+  (string (os/realpath (string dir "/www/some_dir")) "/commands/" name))
+
+(defn- log-text []
+  (def path (string dir "/www/some_dir/log/commands.log"))
+  (if (os/stat path) (slurp path) ""))
+
+;;; Parsing
+
+(deftest parse-head
+  (def r (server/parse-head "POST /run/a/in/b HTTP/1.1\r\nHost: x\r\nX-Hub-Signature-256:  sha256=ab \r\nContent-Length: 2"))
+  (is (== {:method "POST"
+           :target "/run/a/in/b"
+           :headers {"host" "x" "x-hub-signature-256" "sha256=ab" "content-length" "2"}}
+          r))
+  (is (= nil (server/parse-head "hello")))
+  (is (= nil (server/parse-head "POST /a HTTP/2.0")))
+  (is (= nil (server/parse-head "POST a HTTP/1.1")))
+  (is (= nil (server/parse-head "POST  /a HTTP/1.1")))
+  (is (= nil (server/parse-head "POST /a HTTP/1.1\r\nno colon")))
+  (is (= nil (server/parse-head "POST /a HTTP/1.1\r\n: empty name")))
+  (is (= nil (server/parse-head "POST /a HTTP/1.1\r\nBad Name: x")))
+  (is (= nil (server/parse-head "POST /a HTTP/1.1\r\nContent-Length: 1\r\ncontent-length: 2")))
+  (is (= nil (server/parse-head "POST /a HTTP/1.1\r\nX-Hub-Signature-256: a\r\nX-Hub-Signature-256: b")))
+  (is (= nil (server/parse-head "POST /a HTTP/1.1\r\nTransfer-Encoding: x\r\nTransfer-Encoding: y")))
+  (is (server/parse-head "POST /a HTTP/1.1\r\nAccept: a\r\nAccept: b")))
+
+(deftest route
+  (is (== ["cmd" "some_dir"] (server/route "/run/cmd/in/some_dir")))
+  (is (== ["cmd" "some_dir"] (server/route "/run/cmd/in/some_dir/")))
+  (is (== ["cmd" "a.example.org"] (server/route "/run/cmd/in/a.example.org?x=1")))
+  (each target ["/" "/run/cmd" "/run/cmd/in" "/run/cmd/in/" "/run/cmd/in/a/b"
+                "/run/cmd/in/some_dir//" "//run/cmd/in/a" "/run/../in/a"
+                "/run/cmd/in/.." "/run/c%2Fd/in/a" "/run/cmd/at/a" "/x/cmd/in/a"]
+    (is (= nil (server/route target)) target)))
+
+;;; Over a socket (the cases of the Ruby version first)
+
+(deftest root
+  (with [s (start-server)]
+    (is (== [404 "Page not found"] (exchange s "GET / HTTP/1.1\r\n\r\n")))))
+
+(deftest post-with-no-signature
+  (with [s (start-server)]
+    (is (== [400 "X-Hub-Signature-256 header not set"]
+            (post s "/run/cmd/in/some_dir/" "")))))
+
+(deftest post-with-invalid-signature
+  (with [s (start-server)]
+    (is (== [403 "X-Hub-Signature-256 header did not match"]
+            (post s "/run/cmd/in/some_dir/" "" :sig "invalid")))))
+
+(deftest post-with-invalid-dir
+  (with [s (start-server)]
+    (is (== [403 "X-Hub-Signature-256 header did not match"]
+            (post s "/run/cmd/in/other_dir/" "" :sig (valid-sig ""))))))
+
+(deftest post-with-invalid-command
+  (with [s (start-server)]
+    (is (== [400 "Command not found"]
+            (post s "/run/other_cmd/in/some_dir/" "" :sig (valid-sig ""))))))
+
+(deftest post-with-valid-command
+  (with [s (start-server)]
+    (def body "{\"ref\":\"refs/heads/main\"}")
+    (is (== [200 "Command initiated"]
+            (post s "/run/cmd/in/some_dir/" body :sig (valid-sig body))))
+    (wait-for (cmd-path "cmd"))
+    (def log (log-text))
+    (is (string/find (string "] Initiating: " (cmd-path "cmd") "\n") log))
+    (is (string/find "] Hello world\n" log))
+    (is (string/find "] Finished: " log))))
+
+(deftest post-with-no-log
+  (with [s (start-server :tweak #(assoc $ :log-file nil))]
+    (is (== [200 "Command initiated"]
+            (post s "/run/cmd/in/some_dir" "" :sig (valid-sig ""))))
+    (wait-for (cmd-path "cmd"))
+    (is (= "" (log-text)))))
+
+;;; Over a socket (new in the Wattle version)
+
+(deftest post-queued
+  (with [s (start-server)]
+    (is (== [200 "Command initiated"]
+            (post s "/run/slow/in/some_dir" "" :sig (valid-sig ""))))
+    (is (== [200 "Command queued"]
+            (post s "/run/slow/in/some_dir" "" :sig (valid-sig ""))))
+    (wait-for (cmd-path "slow"))))
+
+(deftest post-with-unwritable-log
+  (with [s (start-server)]
+    (is (== [500 "Log file could not be opened"]
+            (post s "/run/cmd/in/no_log_dir" "" :sig (valid-sig ""))))
+    (is (string/find "cannot open the log" (string err)))))
+
+(deftest refusals-before-the-body
+  (with [s (start-server)]
+    (is (== [405 "Method not allowed"]
+            (exchange s "GET /run/cmd/in/some_dir HTTP/1.1\r\n\r\n")))
+    (is (== [404 "Page not found"]
+            (post s "/run/cmd/in/some_dir/extra" "" :sig (valid-sig ""))))
+    (is (== [411 "Content-Length required"]
+            (exchange s "POST /run/cmd/in/some_dir HTTP/1.1\r\n\r\n")))
+    (is (== [400 "Bad request"]
+            (exchange s "POST /run/cmd/in/some_dir HTTP/1.1\r\nContent-Length: -1\r\n\r\n")))
+    (is (== [413 "Request body too large"]
+            (exchange s "POST /run/cmd/in/some_dir HTTP/1.1\r\nContent-Length: 1048577\r\n\r\n")))
+    (is (== [413 "Request body too large"]
+            (exchange s "POST /run/cmd/in/some_dir HTTP/1.1\r\nContent-Length: 99999999999999999999\r\n\r\n")))
+    (is (== [501 "Transfer-Encoding not supported"]
+            (exchange s "POST /run/cmd/in/some_dir HTTP/1.1\r\nTransfer-Encoding: chunked\r\nContent-Length: 2\r\n\r\n{}")))
+    (is (== [400 "Bad request"]
+            (exchange s "POST /run/cmd/in/some_dir HTTP/1.1\r\nContent-Length: 2\r\nContent-Length: 2\r\n\r\n{}")))
+    (is (== [400 "Bad request"] (exchange s "hello\r\n\r\n")))
+    (is (== [431 "Request headers too large"]
+            (exchange s (string "POST /run/cmd/in/some_dir HTTP/1.1\r\nX: "
+                                (string/repeat "a" 20000) "\r\n\r\n"))))))
+
+(deftest signature-covers-the-whole-body
+  (with [s (start-server)]
+    ; A body longer than Content-Length: only the declared bytes are signed
+    ; and read.
+    (is (== [403 "X-Hub-Signature-256 header did not match"]
+            (exchange s (string "POST /run/cmd/in/some_dir HTTP/1.1\r\n"
+                                "X-Hub-Signature-256: " (valid-sig "{}extra") "\r\n"
+                                "Content-Length: 2\r\n\r\n{}extra"))))
+    (is (== [200 "Command initiated"]
+            (exchange s (string "POST /run/cmd/in/some_dir HTTP/1.1\r\n"
+                                "X-Hub-Signature-256: " (valid-sig "{}") "\r\n"
+                                "Content-Length: 2\r\n\r\n{}extra"))))
+    (wait-for (cmd-path "cmd"))))
+
+(deftest timeout
+  (with [s (start-server)]
+    (with [c (net/connect "127.0.0.1" (port-of s))]
+      (net/write c "POST /run/cmd/in/some_dir HTTP/1.1\r\nContent-Length: 10\r\n")
+      (def resp (string (net/read c :all)))
+      (is (string/has-prefix? "HTTP/1.1 408 " resp)))
+    (with [c (net/connect "127.0.0.1" (port-of s))]
+      (net/write c (string "POST /run/cmd/in/some_dir HTTP/1.1\r\n"
+                           "X-Hub-Signature-256: " (valid-sig "0123456789") "\r\n"
+                           "Content-Length: 10\r\n\r\n01234"))
+      (def resp (string (net/read c :all)))
+      (is (string/has-prefix? "HTTP/1.1 408 " resp)))
+    (is (= nil (runner/status (cmd-path "cmd"))))))
+
+(deftest too-many-connections
+  (with [s (start-server :tweak #(assoc $ :max-connections 1))]
+    (with [held (net/connect "127.0.0.1" (port-of s))]
+      (ev/sleep 0.05)
+      (is (== [503 "Too many connections"] (exchange s "GET / HTTP/1.1\r\n\r\n"))))))
+
+(deftest access-log
+  (with [s (start-server)]
+    (post s "/run/cmd/in/other_dir" "" :sig (valid-sig ""))
+    (is (string/find "POST /run/cmd/in/other_dir HTTP/1.1 403\n" (string out)))
+    (is (string/find "no directory \"other_dir\"" (string err)))
+    (is (not (string/find (valid-sig "") (string out))))
+    (is (not (string/find (valid-sig "") (string err))))))
+
+(defer (h/rmrf dir)
+  (run-tests!))

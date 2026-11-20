@@ -1,0 +1,258 @@
+; The HTTP server. It answers `POST /run/<command>/in/<directory>[/]` and
+; nothing else, and closes the connection after every response.
+;
+; The order of the checks matters: a request is refused on its head (path,
+; method, length) before its body is read, and the body is read in full
+; before the signature is checked, since the signature covers the body.
+
+(import ./auth)
+(import ./paths)
+(import ./runner)
+
+(def max-head
+  "The most bytes a request's line and headers can take."
+  16384)
+
+(def max-body
+  "The most bytes a request's body can take."
+  1048576)
+
+(def read-timeout
+  "The seconds a request has to send its head and body, unless settings has :read-timeout."
+  10)
+
+(def max-connections
+  "The most connections handled at once, unless settings has :max-connections. Others get 503."
+  32)
+
+(def- reasons
+  {200 "OK"
+   400 "Bad Request"
+   403 "Forbidden"
+   404 "Not Found"
+   405 "Method Not Allowed"
+   408 "Request Timeout"
+   411 "Length Required"
+   413 "Content Too Large"
+   431 "Request Header Fields Too Large"
+   500 "Internal Server Error"
+   501 "Not Implemented"
+   503 "Service Unavailable"})
+
+(defn- reply [status body & {:keys [reason headers]}]
+  {:status status :body body :reason reason :headers (or headers {})})
+
+;;; Parsing
+
+(def- token-peg
+  (peg/compile `(* (some (+ :w (set "!#$%&'*+-.^_`|~"))) -1)))
+
+(def- digits-peg (peg/compile `(* (some :d) -1)))
+
+(defn parse-head
+  """
+  Parses head, the text of a request before its blank line, into a map with
+  `:method`, `:target` and `:headers`, a map from lower-case header names to
+  values. Returns nil if head is not a valid HTTP/1.x request line followed
+  by headers, or if Content-Length, Transfer-Encoding or
+  X-Hub-Signature-256 appears more than once.
+  """
+  [head]
+  (def lines (string/split "\r\n" head))
+  (def parts (string/split " " (first lines)))
+  (when (and (= 3 (length parts))
+             (peg/match token-peg (get parts 0))
+             (string/has-prefix? "/" (get parts 1))
+             (has-value? ["HTTP/1.0" "HTTP/1.1"] (get parts 2)))
+    (var headers {})
+    (var ok? true)
+    (each l (array/slice lines 1)
+      (def i (string/find ":" l))
+      (if (and i (> i 0) (peg/match token-peg (string/slice l 0 i)))
+        (let [name (string/ascii-lower (string/slice l 0 i))
+              value (string/trim (string/slice l (inc i)))]
+          (when (and (get headers name)
+                     (has-value? ["content-length" "transfer-encoding"
+                                  "x-hub-signature-256"]
+                                 name))
+            (set ok? false))
+          (set headers (assoc headers name value)))
+        (set ok? false)))
+    (when ok?
+      {:method (get parts 0) :target (get parts 1) :headers headers})))
+
+(defn route
+  """
+  Returns `[command directory]` for target, a request target such as
+  `/run/rebuild/in/example.org/`, or nil if it is not a command URL. A query
+  string is ignored. Each name must be valid (see `paths/valid-name?`).
+  """
+  [target]
+  (def path (let [i (string/find "?" target)]
+              (if i (string/slice target 0 i) target)))
+  (def parts (string/split "/" path))
+  (def n (length parts))
+  (when (and (or (= n 5) (and (= n 6) (= "" (get parts 5))))
+             (= "" (get parts 0))
+             (= "run" (get parts 1))
+             (= "in" (get parts 3))
+             (paths/valid-name? (get parts 2))
+             (paths/valid-name? (get parts 4)))
+    [(get parts 2) (get parts 4)]))
+
+(defn check-head
+  """
+  Returns the reply that refuses request, a map from `parse-head`, before its
+  body is read, or nil if its body should be read.
+  """
+  [request]
+  (def headers (request :headers))
+  (def declared (get headers "content-length"))
+  (cond
+    (nil? (route (request :target))) (reply 404 "Page not found")
+    (not= "POST" (request :method))
+    (reply 405 "Method not allowed" :headers {"Allow" "POST"})
+    (get headers "transfer-encoding")
+    (reply 501 "Transfer-Encoding not supported")
+    (nil? declared) (reply 411 "Content-Length required")
+    (not (peg/match digits-peg declared)) (reply 400 "Bad request")
+    (or (> (length declared) 7) (> (scan-number declared) max-body))
+    (reply 413 "Request body too large")))
+
+(defn answer
+  """
+  Returns the reply to request, a map from `parse-head` that passed
+  `check-head`, with body, its body. Checks the signature and starts the
+  command.
+  """
+  [settings request body]
+  (def [command directory] (route (request :target)))
+  (def checked (auth/check settings directory
+                           (get-in request [:headers "x-hub-signature-256"])
+                           body))
+  (if (not (checked :ok?))
+    (reply (checked :status) (checked :body) :reason (checked :reason))
+    (case (runner/start settings (checked :site) command)
+      :started (reply 200 "Command initiated")
+      :queued (reply 200 "Command queued")
+      :missing (reply 400 "Command not found"
+                      :reason (string/format "no command %q" command))
+      :no-log (reply 500 "Log file could not be opened"
+                     :reason (string/format "cannot open the log of %q" directory)))))
+
+;;; Connections
+
+; Returns the seconds left before deadline. Raises "timeout", as net/read does
+; when its own timeout passes, if there are none.
+(defn- remaining [deadline]
+  (def left (- deadline (os/clock :monotonic)))
+  (when (<= left 0) (error "timeout"))
+  left)
+
+(defn- read-head
+  """
+  Reads from conn until the end of the head. Returns `[head rest]`, where
+  rest holds the bytes after the head, or a reply that refuses the request.
+  Returns nil if the connection closes before sending anything.
+  """
+  [conn buf deadline]
+  (var at nil)
+  (var open? true)
+  (while (and open? (nil? at) (<= (length buf) max-head))
+    (if (net/read conn 4096 buf (remaining deadline))
+      (set at (string/find "\r\n\r\n" buf))
+      (set open? false)))
+  (cond
+    at (if (> at max-head)
+         (reply 431 "Request headers too large")
+         [(string (buffer/slice buf 0 at)) (buffer/slice buf (+ at 4))])
+    (> (length buf) max-head) (reply 431 "Request headers too large")
+    (empty? buf) nil
+    (reply 400 "Bad request")))
+
+(defn- read-body [conn rest n deadline]
+  (def buf (buffer/slice rest 0 (min n (length rest))))
+  (while (< (length buf) n)
+    (unless (net/read conn (- n (length buf)) buf (remaining deadline))
+      (error :closed)))
+  (string buf))
+
+(defn- respond [conn {status :status body :body headers :headers}]
+  (def out !"")
+  (buffer/push! out "HTTP/1.1 " (string status) " " (reasons status) "\r\n")
+  (each [k v] (pairs (assoc headers
+                            "Content-Type" "text/plain; charset=utf-8"
+                            "Content-Length" (string (length body))
+                            "Connection" "close"))
+    (buffer/push! out k ": " v "\r\n"))
+  (buffer/push! out "\r\n" body)
+  (net/write conn out 5))
+
+(defn- serve-1
+  """
+  Reads one request from conn and returns `[request-line reply]`. If busy? is
+  true, the head is read and the request refused with 503, so that the
+  client is reading when the connection closes rather than still writing,
+  which would reset the connection and lose the response.
+  """
+  [settings conn busy?]
+  (def deadline (+ (os/clock :monotonic) (or (settings :read-timeout) read-timeout)))
+  (def head (read-head conn !"" deadline))
+  (cond
+    (nil? head) [nil nil]
+    (dictionary? head) ["-" head]
+    (let [[text rest] head
+          line (first (string/split "\r\n" text))
+          request (parse-head text)]
+      (cond
+        busy? [line (reply 503 "Too many connections")]
+        (nil? request) [line (reply 400 "Bad request")]
+        (if-let [refused (check-head request)]
+          [line refused]
+          (let [n (scan-number (get-in request [:headers "content-length"]))
+                body (read-body conn rest n deadline)]
+            [line (answer settings request body)]))))))
+
+(var- active 0)
+
+(defn handler
+  """
+  Returns a function that answers one connection. It prints the request line
+  and status of each request to out and the reason for each refusal to err,
+  which are `*out*` and `*err*` when the handler is made, since the fiber
+  for each connection does not see the dynamic bindings of its caller.
+  """
+  [settings]
+  (def out (dyn *out* stdout))
+  (def err (dyn *err* stderr))
+  (fn [conn]
+    (++ active)
+    (defer (do (-- active) (:close conn))
+      (def busy? (> active (or (settings :max-connections) max-connections)))
+      (def [line result]
+        (try (serve-1 settings conn busy?)
+             ([e] (case e
+                    "timeout" ["-" (reply 408 "Request timeout")]
+                    :closed [nil nil]
+                    ["-" (reply 500 "Internal server error"
+                                :reason (string e))]))))
+      (when result
+        (try (respond conn result) ([_] nil))
+        (with-dyns [*out* out *err* err]
+          (print line " " (result :status))
+          (when-let [reason (result :reason)]
+            (eprint "tenter: " line ": " reason))
+          (flush))))))
+
+(def loopback-hosts
+  "The addresses that mean only this machine."
+  ["127.0.0.1" "::1" "localhost"])
+
+(defn start
+  """
+  Listens on the host and port in settings and answers connections there.
+  Returns the server stream. Port 0 picks a free port; `net/localname`
+  gives the one chosen.
+  """
+  [settings]
+  (net/server (settings :host) (settings :port) (handler settings)))
