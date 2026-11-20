@@ -5,19 +5,10 @@
 Tenter is a web server that runs a command when GitHub sends it a signed
 webhook. It is written in Wattle, a Lisp with Clojure-like syntax that runs
 on a Zig rewrite of the Janet virtual machine. The executable is `tenter`.
-It replaces the Ruby version of Tenter (0.2.0, Sinatra on Thin) on
-a Linux server, where nginx terminates HTTPS and
-forwards requests to Tenter on `127.0.0.1`. Its main job there is running
-each site's `commands/rebuild`, which calls Ecstatic.
+It replaces the Ruby gem (last released as 0.2.0), whose source is on the
+`ruby` branch.
 
-`PLAN.md` holds the design decisions and the milestones. Read it before
-starting a milestone, and update it when a decision changes or a milestone
-is done.
-
-**Author**: Michael Camilleri
-**License**: MIT
-**Language**: Wattle
-**Repository**: https://github.com/pyrmont/tenter
+`PLAN.md` holds the design decisions. Update it when a decision changes.
 
 ## Directory Structure
 
@@ -100,8 +91,8 @@ well as for the successful path. In particular:
 - A command is run only after the request's `X-Hub-Signature-256` matches
   the HMAC-SHA256 of the body under the directory's secret, compared with
   `crypto/equal?`.
-- Every refusal before the signature is checked gives the same 403 response,
-  so a caller cannot tell an unknown directory from a wrong signature.
+- An unknown directory, an unusable `hooks.edn` and a wrong signature all
+  give the same 403 response, so a caller cannot tell them apart.
 - Commands are run with `os/spawn` and an argument vector, never through a
   shell, and only if the resolved path is inside the directory's command
   directory.
@@ -182,9 +173,8 @@ The man page source is `man/man1/tenter.1.predoc`. Regenerate
 man/man1/tenter.1` and commit both. Code blocks in Predoc use four
 backticks.
 
-The version stays `DEVEL` in `info.edn` and the man page between releases.
-`wattle res/tools/version.wattle <version>` sets it in both, regenerates the
-man page and updates `CHANGELOG.md`.
+The version stays `DEVEL` in `info.edn` and the man page between releases;
+`RELEASING.md` describes a release.
 
 The files in `res/deploy/` are examples for any server, so they name no
 particular host. Keep them in step with the defaults and the man page.
@@ -194,11 +184,8 @@ particular host. Keep them in step with the defaults and the man page.
 Tests are plain Wattle scripts in `test/`, using `deps/gum/test.wattle`
 (`deftest`, `is`, `run-tests!`). Run them from the project root.
 
-The directory layout follows the one in "Recommended Directory Structure for
-Janet Bundles" (articles.inqk.net, 2025-09-18): resources used by the
-project, including test fixtures and helper scripts, go in `res/`, not in
-`test/`. `wattle test` runs every file in `test/`, so `test/` holds only
-test files.
+`wattle test` runs every file in `test/`, so `test/` holds only test files.
+Fixtures and helper scripts go in `res/`.
 
 Fixtures are committed trees in `res/fixtures/`, including symlinks and
 executable files. An empty directory holds a `.gitkeep`, which
@@ -211,10 +198,6 @@ ignored by Git.
 wattle build exe      # test/executable.wattle runs zig-out/bin/tenter
 wattle test
 ```
-
-A hook rejects shell commands that contain the word `sleep`, including
-Wattle source with `ev/sleep` passed with `-e`. Put such code in a script
-file and run the file.
 
 ## Common Tasks
 
