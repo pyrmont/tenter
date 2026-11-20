@@ -25,18 +25,26 @@ is done.
 tenter/
 ├── lib/
 │   ├── cli.wattle       # Command line (Gum's Argy-Bargy port), settings and `main`
+│   ├── paths.wattle     # Valid names; resolving an exposed directory
+│   ├── auth.wattle      # hooks.edn, HMAC-SHA256 signatures, `auth/check`
 │   └── version.wattle   # Version label, fixed at compile time
 ├── test/
+│   ├── auth.wattle        # Names, directories, secrets and signatures
 │   ├── cli.wattle         # Settings from options
 │   └── executable.wattle  # Runs zig-out/bin/tenter
+├── res/
+│   ├── fixtures/          # Trees the tests copy, one directory per test file
+│   │   └── auth/          # www/ (a document root) and outside/
+│   └── helpers/
+│       └── util.wattle    # Copies a fixture to tmp/test/ (imported as `h`)
 ├── deps/gum/            # Vendored with `wattle gum args test`
 ├── info.edn             # Project and build declaration
 ├── CHANGELOG.md         # Changes by release, with an Unreleased section
 └── PLAN.md              # Design and milestones
 ```
 
-`PLAN.md` lists the modules still to be written (`server`, `auth`, `runner`
-and `log`).
+`PLAN.md` lists the modules still to be written (`server`, `runner` and
+`log`).
 
 ## Security
 
@@ -122,8 +130,20 @@ The version stays `DEVEL` in `info.edn` between releases.
 ## Testing
 
 Tests are plain Wattle scripts in `test/`, using `deps/gum/test.wattle`
-(`deftest`, `is`, `run-tests!`). Tests write files under `tmp/test/`, which
-is ignored by Git, and remove them when they finish.
+(`deftest`, `is`, `run-tests!`). Run them from the project root.
+
+The directory layout follows the one in "Recommended Directory Structure for
+Janet Bundles" (articles.inqk.net, 2025-09-18): resources used by the
+project, including test fixtures and helper scripts, go in `res/`, not in
+`test/`. `wattle test` runs every file in `test/`, so `test/` holds only
+test files.
+
+Fixtures are committed trees in `res/fixtures/`, including symlinks and
+executable files. An empty directory holds a `.gitkeep`, which
+`h/copy` leaves out. A test copies its fixture to `tmp/test/` with
+`h/copy` (from `res/helpers/util.wattle`), works on the copy, and
+removes it when it finishes, so the tests never change `res/`. `tmp/` is
+ignored by Git.
 
 ```bash
 wattle build exe      # test/executable.wattle runs zig-out/bin/tenter

@@ -1,0 +1,68 @@
+; Checks that a request was signed with the secret of its exposed directory.
+;
+; GitHub signs the body of each delivery with HMAC-SHA256 under the webhook's
+; secret and sends the result in X-Hub-Signature-256 as `sha256=<hex>`.
+
+(import ./paths)
+
+(def missing-message "X-Hub-Signature-256 header not set")
+(def mismatch-message "X-Hub-Signature-256 header did not match")
+
+(defn- hex [bytes]
+  (def out !"")
+  (each b bytes (buffer/push! out (string/format "%02x" b)))
+  (string out))
+
+(defn sign
+  "Returns the X-Hub-Signature-256 value for body under secret."
+  [secret body]
+  (string "sha256=" (hex (crypto/hmac :sha256 secret body))))
+
+(defn read-secret
+  """
+  Returns the secret in the configuration file at path. The file must hold
+  one EDN map with a `:secret` that is a non-empty string and no other keys.
+  It is read with `edn/decode`, which evaluates nothing. Raises an error that
+  describes the problem otherwise.
+  """
+  [path]
+  (def text (try (slurp path)
+                 ([_] (errorf "cannot read %s" path))))
+  (def config (try (edn/decode text)
+                   ([e] (errorf "%s: %s" path e))))
+  (assertf (map? config) "%s: expected a map" path)
+  (eachk k config
+    (assertf (= :secret k) "%s: unknown key %q" path k))
+  (def secret (get config :secret))
+  (assertf (and (string? secret) (not (empty? secret)))
+           "%s: :secret must be a non-empty string" path)
+  secret)
+
+(defn- refuse [status body reason]
+  {:ok? false :status status :body body :reason reason})
+
+(defn check
+  """
+  Checks a request for the exposed directory called name, where signature is
+  the value of its X-Hub-Signature-256 header (or nil) and body is its body.
+
+  Returns `{:ok? true :site <dir>}`, where dir is the resolved path of the
+  directory, if the signature matches. Otherwise returns `{:ok? false}` with
+  the `:status` and `:body` of the response and a `:reason` for the server's
+  log. A missing signature is a 400. An unknown directory, a configuration
+  file that cannot be used and a wrong signature are each a 403 with the same
+  body, so the response does not show which it was.
+  """
+  [settings name signature body]
+  (if (nil? signature)
+    (refuse 400 missing-message "no signature")
+    (let [site (paths/site-dir settings name)]
+      (if (nil? site)
+        (refuse 403 mismatch-message (string/format "no directory %q" name))
+        (let [path (string site "/" (settings :config-filename))
+              [ok? secret] (try [true (read-secret path)]
+                                ([e] [false e]))]
+          (cond
+            (not ok?) (refuse 403 mismatch-message (string secret))
+            (crypto/equal? (sign secret body) signature) {:ok? true :site site}
+            (refuse 403 mismatch-message "signature did not match")))))))

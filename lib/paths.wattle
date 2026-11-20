@@ -1,0 +1,41 @@
+; Checks on the names in a request URL and on the paths built from them.
+
+(def- name-peg
+  (peg/compile `(* (+ :w "_") (any (+ :w (set "._-"))) -1)))
+
+(defn valid-name?
+  """
+  Checks whether s can name a directory or a command: a letter, digit or `_`,
+  followed by any number of letters, digits, `.`, `_` or `-`.
+  """
+  [s]
+  (and (string? s) (truthy? (peg/match name-peg s))))
+
+(defn- real [path]
+  (try (os/realpath path) ([_] nil)))
+
+(defn inside?
+  """
+  Checks whether path is dir or is below it. Both must be resolved paths, as
+  `os/realpath` returns them.
+  """
+  [dir path]
+  (or (= dir path)
+      (string/has-prefix? (if (= "/" dir) dir (string dir "/")) path)))
+
+(defn site-dir
+  """
+  Returns the resolved path of the exposed directory called name under the
+  document root in settings. Returns nil if name is not a valid name, if
+  there is no such directory, or if its resolved path is not below the
+  document root (as when it is a symlink to somewhere else).
+  """
+  [settings name]
+  (when (valid-name? name)
+    (def root (real (settings :doc-root)))
+    (def dir (real (string (settings :doc-root) "/" name)))
+    (when (and root dir
+               (not= root dir)
+               (inside? root dir)
+               (= :directory (os/stat dir :mode)))
+      dir)))

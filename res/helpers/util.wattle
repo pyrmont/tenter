@@ -1,0 +1,55 @@
+; Copies the trees in res/fixtures/ to tmp/test/ for the tests, so that a test
+; can write into its copy without changing the fixtures. Run the tests from
+; the project root.
+
+(def root
+  "The directory that holds the fixtures."
+  "res/fixtures")
+
+(defn rmrf
+  "Removes path and, if it is a directory, everything under it. A symlink is
+  removed, not followed."
+  [path]
+  (case (os/lstat path :mode)
+    nil nil
+    :directory (do
+                 (each name (os/dir path) (rmrf (string path "/" name)))
+                 (os/rmdir path))
+    (os/rm path)))
+
+(defn mkdirp
+  "Creates the directory path and any missing parents."
+  [path]
+  (var at (if (string/has-prefix? "/" path) "" "."))
+  (each part (string/split "/" path)
+    (unless (empty? part)
+      (set at (string at "/" part))
+      (unless (os/stat at) (os/mkdir at)))))
+
+(defn- copy-tree [from to]
+  (def mode (os/lstat from :mode))
+  (case mode
+    :link (os/symlink (os/readlink from) to)
+    :directory (do
+                 (os/mkdir to)
+                 (each name (os/dir from)
+                   (unless (= ".gitkeep" name)
+                     (copy-tree (string from "/" name) (string to "/" name)))))
+    :file (do
+            (spit to (slurp from))
+            (os/chmod to (os/stat from :int-permissions)))
+    (errorf "cannot copy %s: %v" from mode)))
+
+(defn copy
+  """
+  Replaces the directory dest with a copy of the fixture called name, a
+  directory in res/fixtures/. Symlinks are copied as symlinks and files keep
+  their permissions. `.gitkeep` files, which hold empty directories in Git,
+  are left out. Returns dest.
+  """
+  [name dest]
+  (rmrf dest)
+  (mkdirp (let [i (last (string/find-all "/" dest))]
+            (if i (string/slice dest 0 i) ".")))
+  (copy-tree (string root "/" name) dest)
+  dest)

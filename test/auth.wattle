@@ -1,0 +1,101 @@
+(import ../deps/gum/test :prefix "")
+(import ../res/helpers/util :as h)
+(import ../lib/auth)
+(import ../lib/cli)
+(import ../lib/paths)
+
+(def- dir "tmp/test/auth")
+(def- root (string (os/cwd) "/" dir "/www"))
+(def- settings (assoc cli/defaults :doc-root root))
+
+; HMAC-SHA256 of the empty body under "ABCDEFG", as computed by
+; `printf '' | openssl dgst -sha256 -hmac ABCDEFG`.
+(def- empty-sig
+  "sha256=f6771c95cb65952a595911fd0ffcf575712bde105b781b02febe9cf690df2704")
+
+; res/fixtures/auth has a document root, www/, with a directory for each case,
+; and outside/, which www/escape links to.
+(defn- make-root [] (h/copy "auth" dir))
+
+(deftest sign
+  (is (= empty-sig (auth/sign "ABCDEFG" "")))
+  (is (= empty-sig (auth/sign "ABCDEFG" !"")))
+  (is (not= (auth/sign "ABCDEFG" "a") (auth/sign "ABCDEFG" "b"))))
+
+(deftest valid-name
+  (is (paths/valid-name? "some_dir"))
+  (is (paths/valid-name? "articles.inqk.net"))
+  (is (paths/valid-name? "re-build"))
+  (is (paths/valid-name? "_x"))
+  (is (not (paths/valid-name? "")))
+  (is (not (paths/valid-name? ".")))
+  (is (not (paths/valid-name? "..")))
+  (is (not (paths/valid-name? ".hidden")))
+  (is (not (paths/valid-name? "-flag")))
+  (is (not (paths/valid-name? "a/b")))
+  (is (not (paths/valid-name? "a\\b")))
+  (is (not (paths/valid-name? "a b")))
+  (is (not (paths/valid-name? "a%2Fb")))
+  (is (not (paths/valid-name? "a\0b")))
+  (is (not (paths/valid-name? nil))))
+
+(deftest site-dir
+  (make-root)
+  (def real-root (os/realpath root))
+  (is (= (string real-root "/some_dir") (paths/site-dir settings "some_dir")))
+  (is (= (string real-root "/some_dir") (paths/site-dir settings "inside")))
+  (is (= nil (paths/site-dir settings "escape")))
+  (is (= nil (paths/site-dir settings "a_file")))
+  (is (= nil (paths/site-dir settings "missing")))
+  (is (= nil (paths/site-dir settings "..")))
+  (is (= nil (paths/site-dir (assoc settings :doc-root "/nonexistent") "some_dir"))))
+
+(deftest read-secret
+  (make-root)
+  (defn secret-of [name] (auth/read-secret (string root "/" name "/hooks.edn")))
+  (is (= "ABCDEFG" (secret-of "some_dir")))
+  (each name ["no_config" "not_edn" "not_map" "empty_secret" "number_secret"
+              "extra_key" "code"]
+    (is (thrown? (secret-of name)) name)))
+
+(deftest check-no-signature
+  (make-root)
+  (def result (auth/check settings "some_dir" nil ""))
+  (is (= false (result :ok?)))
+  (is (= 400 (result :status)))
+  (is (= "X-Hub-Signature-256 header not set" (result :body))))
+
+(deftest check-valid
+  (make-root)
+  (def result (auth/check settings "some_dir" empty-sig ""))
+  (is (= true (result :ok?)))
+  (is (= (string (os/realpath root) "/some_dir") (result :site))))
+
+(deftest check-refusals
+  (make-root)
+  (def sig (auth/sign "ABCDEFG" "{}"))
+  (def mismatch "signature did not match")
+  (each [name signature body reason]
+        [["some_dir" "invalid" "" mismatch]
+         ["some_dir" empty-sig "{}" mismatch]
+         ["some_dir" (auth/sign "ABCDEFH" "{}") "{}" mismatch]
+         ["some_dir" (string/ascii-upper sig) "{}" mismatch]
+         ["some_dir" (string/slice sig 7) "{}" mismatch]
+         ["other_dir" sig "{}" "no directory"]
+         ["escape" sig "{}" "no directory"]
+         ["a_file" sig "{}" "no directory"]
+         ["no_config" sig "{}" "cannot read"]
+         ["not_edn" sig "{}" "invalid edn"]
+         ["not_map" sig "{}" "expected a map"]
+         ["empty_secret" (auth/sign "" "{}") "{}" "non-empty string"]
+         ["number_secret" sig "{}" "non-empty string"]
+         ["extra_key" sig "{}" "unknown key :secert"]
+         ["code" sig "{}" "expected a map"]]
+    (def result (auth/check settings name signature body))
+    (is (= false (result :ok?)) name)
+    (is (= 403 (result :status)) name)
+    (is (= "X-Hub-Signature-256 header did not match" (result :body)) name)
+    (is (string/find reason (result :reason)) name)))
+
+(defer (h/rmrf dir)
+  (run-tests!))
