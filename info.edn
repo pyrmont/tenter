@@ -1,6 +1,6 @@
 {:name "tenter"
  :group "net.inqk"
- :version "0.1.0"
+ :version "DEVEL"
  :description "A web server that runs commands for signed GitHub webhooks"
  :author "Michael Camilleri"
  :license "MIT"
