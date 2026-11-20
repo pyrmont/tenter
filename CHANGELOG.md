@@ -3,7 +3,7 @@
 Each release lists what changed since the release before it. The changes made
 since the most recent release are under Unreleased.
 
-## Unreleased
+## 0.1.0 (2026-11-21)
 
 The first release of Tenter written in Wattle. It replaces the Ruby gem,
 last released as 0.2.0, whose source is on the `ruby` branch. The
