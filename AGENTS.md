@@ -8,8 +8,6 @@ on a Zig rewrite of the Janet virtual machine. The executable is `tenter`.
 It replaces the Ruby gem (last released as 0.2.0), whose source is on the
 `ruby` branch.
 
-`PLAN.md` holds the design decisions. Update it when a decision changes.
-
 ## Directory Structure
 
 ```
@@ -46,8 +44,7 @@ tenter/
 │   └── release.yml      # Builds release archives and drafts a GitHub release
 ├── info.edn             # Project and build declaration
 ├── CHANGELOG.md         # Changes by release, with an Unreleased section
-├── RELEASING.md         # Steps for making a release
-└── PLAN.md              # Design and milestones
+└── RELEASING.md         # Steps for making a release
 ```
 
 ## Requests
