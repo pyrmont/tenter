@@ -104,10 +104,11 @@ fails to parse or means something else:
 - **Prefer persistent collections.** `[...]` is a persistent vector, `{...}`
   a persistent map and `#{...}` a set. `assoc`, `conj`, `dissoc` and `disj`
   return a new collection that shares structure with the old one, so build
-  values with them rather than filling a table and converting it. Assoc-ing
-  `nil` removes a key. Do not `freeze` results. State that changes over the
-  life of the server is a `var` holding a persistent map, replaced with
-  `assoc`, not a mutable table.
+  values with them rather than filling a table and converting it. A map
+  cannot hold `nil` and `assoc` with a `nil` value removes the key. Do not
+  `freeze` results. State that changes over the life of the server is a
+  `var` holding a persistent map, replaced with `assoc`, not a mutable
+  table.
 - **Mutable literals use `!`**: `![]` is an array, `!{}` a table and `!""` a
   buffer. `@[]` and `@{}` are parse errors. Keep them for accumulating inside
   one function, such as building a response in a buffer.
